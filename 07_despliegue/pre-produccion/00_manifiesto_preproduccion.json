@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "generado_por": "reconstruccion desde Notebooks/01-08 y tablas de entrenamiento existentes",
+  "notebook_hash": "PENDIENTE_CALCULO_EXTERNO",
+  "fuente_datos": {
+    "archivo": "02_datos/01_Originales/prestamos.csv",
+    "columnas_raw_necesarias": [
+      "ingresos_verificados", "vivienda", "finalidad", "num_cuotas",
+      "antigüedad_empleo", "rating", "ingresos", "dti",
+      "num_lineas_credito", "porc_uso_revolving", "principal",
+      "tipo_interes", "imp_cuota", "num_derogatorios"
+    ]
+  },
+  "split": {
+    "metodo": "train_test_split estratificado para PD",
+    "ratio_validacion": 0.3,
+    "seed": 42
+  },
+  "variable_objetivo": {
+    "pd": "target_pd",
+    "ead": "target_ead",
+    "lgd": "target_lgd"
+  },
+  "modelo_final": {
+    "pd": {"clase": "LogisticRegression", "metrica_validacion": "roc_auc"},
+    "ead": {"clase": "HistGradientBoostingRegressor", "metrica_validacion": "mean_absolute_error"},
+    "lgd": {"clase": "HistGradientBoostingRegressor", "metrica_validacion": "mean_absolute_error"}
+  },
+  "dag_transformaciones": {
+    "orden_ejecucion": ["P01", "P02", "P03", "P04"],
+    "pasos": [
+      {"paso_id": "P01", "descripcion": "Normalizar categorías y completar antigüedad laboral", "requiere_fit": false},
+      {"paso_id": "P02", "descripcion": "Convertir categorías nominales en columnas numéricas", "requiere_fit": true},
+      {"paso_id": "P03", "descripcion": "Codificar antigüedad y rating; escalar variables numéricas", "requiere_fit": true},
+      {"paso_id": "P04", "descripcion": "Aplicar modelos PD, EAD y LGD", "requiere_fit": true}
+    ]
+  },
+  "riesgos_residuales": [
+    "El notebook histórico ajustaba algunas transformaciones antes de separar entrenamiento y validación.",
+    "La reconstrucción de producción ajusta las transformaciones solo con entrenamiento y usa OneHotEncoder(drop='first').",
+    "EAD y LGD se entrenan únicamente con préstamos en incumplimiento."
+  ]
+}
