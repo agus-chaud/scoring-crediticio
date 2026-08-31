@@ -1,0 +1,42 @@
+# Archivos del sistema
+desktop.ini
+Thumbs.db
+# Entornos
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+# Jupyter
+.ipynb_checkpoints/
+.notebooks/
+# Datos
+datos/
+*.csv
+*.xlsx
+*.parquet
+*.feather
+*.db
+*.sqlite
+*.duckdb
+# Entregables
+entregables/
+reports/
+# Archivos de log
+*.log
+# Configuración de IDE
+.vscode/
+.idea/
+Scoring de Riesgos.pdf
+Soporte/03_Riesgos.zip
+scoring crediticio.zip
+
+# Datos y artefactos locales
+/02_datos/
+*.pkl
+*.joblib
+*.zip
+
+# Artefacto necesario para desplegar la API
+!07_despliegue/api/artefacto_pipeline.pkl
+Microsoft/Windows/PowerShell/ModuleAnalysisCache
