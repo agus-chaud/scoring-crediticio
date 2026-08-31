@@ -1,0 +1,18 @@
+﻿[
+  {
+    "ingresos_verificados": "Source Verified",
+    "vivienda": "RENT",
+    "finalidad": "debt_consolidation",
+    "num_cuotas": "36 months",
+    "antigüedad_empleo": "5 years",
+    "rating": "B",
+    "ingresos": 50000,
+    "dti": 15.0,
+    "num_lineas_credito": 12,
+    "porc_uso_revolving": 40.0,
+    "principal": 10000,
+    "tipo_interes": 0.15,
+    "imp_cuota": 350,
+    "num_derogatorios": 0
+  }
+]
