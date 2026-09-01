@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0.0",
+  "copy": {
+    "title": "Explorador de riesgo crediticio",
+    "subtitle": "Visualización demostrativa conectada a la API canónica.",
+    "disclaimer": "Resultado demostrativo, no calibrado. No es una política de crédito, una oferta ni asesoramiento financiero.",
+    "drift_warning": "Se preservan los valores crudos de la API. El tipo de interés y las cuotas pueden diferir de convenciones del entrenamiento; no se normalizan en el cliente."
+  },
+  "layout": {"breakpoints": [375, 768, 1024, 1440], "narrow_behavior": "stack", "form_columns": 2},
+  "tokens": {
+    "primitive": {"violet": "#7C3AED", "orange": "#EA580C", "slate": "#0F172A", "muted": "#475569", "lilac": "#FAF5FF", "border": "#DDD6FE", "danger": "#DC2626"},
+    "semantic": {"background": "#FAF5FF", "surface": "#FFFFFF", "foreground": "#0F172A", "muted": "#475569", "border": "#DDD6FE", "primary": "#7C3AED", "accent": "#EA580C", "danger": "#DC2626"},
+    "component": {"focus_ring": "#EA580C", "button": "#7C3AED", "card_border": "#DDD6FE"}
+  },
+  "fields": {
+    "id_cliente": {"type": "integer", "required": false, "widget": "number_input", "default": null},
+    "ingresos_verificados": {"type": "string", "required": true, "widget": "selectbox", "options": ["Source Verified", "Verified", "Not Verified"], "default": "Source Verified"},
+    "vivienda": {"type": "string", "required": true, "widget": "selectbox", "options": ["RENT", "MORTGAGE", "OWN", "OTHER"], "default": "RENT"},
+    "finalidad": {"type": "string", "required": true, "widget": "selectbox", "options": ["debt_consolidation", "credit_card", "home_improvement", "other"], "default": "debt_consolidation"},
+    "num_cuotas": {"type": "string", "required": true, "widget": "selectbox", "options": ["36 months", "60 months"], "default": "36 months", "semantic_warning": "Valor crudo; se envía sin normalización."},
+    "antigüedad_empleo": {"type": "string", "required": true, "widget": "selectbox", "options": ["< 1 year", "1 year", "2 years", "3 years", "5 years", "10+ years"], "default": "5 years"},
+    "rating": {"type": "string", "required": true, "widget": "selectbox", "options": ["A", "B", "C", "D", "E", "F", "G"], "default": "B"},
+    "ingresos": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 50000},
+    "dti": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 15.0},
+    "num_lineas_credito": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 12},
+    "porc_uso_revolving": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 40.0},
+    "principal": {"type": "number", "required": true, "widget": "number_input", "min": 1, "default": 10000},
+    "tipo_interes": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 0.15, "semantic_warning": "Valor crudo; se envía sin normalización."},
+    "imp_cuota": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 350},
+    "num_derogatorios": {"type": "number", "required": true, "widget": "number_input", "min": 0, "default": 0}
+  },
+  "result_view": {"metrics": ["score_pd", "score_ead", "score_lgd", "perdida_esperada_relativa"], "threshold": 0.05, "formula": "PD × EAD × LGD"},
+  "scenarios": {"principal_factors": [0.8, 0.9, 1.0], "terms": ["36 months", "60 months"], "max_qualifying": 6, "label": "Escenarios de sensibilidad ceteris-paribus; no son ofertas ni recomendaciones."}
+}
