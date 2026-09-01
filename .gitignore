@@ -39,4 +39,10 @@ scoring crediticio.zip
 
 # Artefacto necesario para desplegar la API
 !07_despliegue/api/artefacto_pipeline.pkl
+/.agents/skills/
+/.claude/skills/
 Microsoft/Windows/PowerShell/ModuleAnalysisCache
+07_despliegue/03_app/media/score.jpg
+07_despliegue/03_app/media/DS4B_favicon.png
+.atl/
+07_despliegue/03_app/01_Creacion de una aplicacion con Streamlit.ipynb
