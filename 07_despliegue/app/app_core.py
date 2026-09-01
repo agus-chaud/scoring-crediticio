@@ -69,6 +69,30 @@ class AppState:
     error_message: str | None = None
 
 
+def compose_payload_values(visible: Mapping[str, Any], hidden: Mapping[str, Any]) -> dict[str, Any]:
+    """Une los ocho campos visibles con los obligatorios ocultos.
+
+    Los ocultos aportan su valor fijo del fixture; los visibles siempre ganan.
+    Nunca muta los argumentos, así ocultar un campo no puede romper el contrato.
+    """
+    merged: dict[str, Any] = dict(hidden)
+    merged.update(visible)
+    return merged
+
+
+def risk_band(value: float, threshold: float, warn: float) -> tuple[str, str]:
+    """Traduce la pérdida relativa a una lectura simple de riesgo, siempre con texto.
+
+    Es una lectura demostrativa, no una decisión de crédito: sólo dice si la
+    pérdida estimada quedó por debajo, cerca o por encima de la referencia.
+    """
+    if value <= threshold:
+        return "within", "Riesgo bajo"
+    if value <= warn:
+        return "near", "Riesgo medio"
+    return "outside", "Riesgo alto"
+
+
 def build_payload(values: Mapping[str, Any]) -> InputRecord:
     """Construye el registro sin recortar, mapear ni escalar valores del usuario."""
     missing = [field for field in REQUIRED_FIELDS if field not in values]
