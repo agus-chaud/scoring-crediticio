@@ -8,7 +8,7 @@ El resultado es la pérdida esperada: `PD × EAD × LGD`, una métrica util para
 ## Dashboard en vivo
 
 Ver el dashboard en vivo: [https://aa-scoring-crediticio.onrender.com](https://aa-scoring-crediticio.onrender.com).
-
+Tenele paciencia que cargue :)
 ## Problema
 
 Evaluar el riesgo de una cartera de préstamos necesita combinar la probabilidad de incumplimiento con la exposición pendiente y la pérdida potencial. Por eso se transforman registros crudos de préstamos en estimaciones consistentes de esas tres dimensiones.
