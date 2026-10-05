@@ -35,7 +35,8 @@
     "finalidad": "debt_consolidation",
     "antigüedad_empleo": "5 years",
     "num_lineas_credito": 12,
-    "num_derogatorios": 0
+    "num_derogatorios": 0,
+    "empleo": "Office Manager"
   },
   "result_view": {"metrics": ["score_pd", "score_ead", "score_lgd", "perdida_esperada_relativa"], "formula": "PD × EAD × LGD"},
   "scenarios": {"principal_factors": [0.8, 0.9, 1.0], "terms": ["36 months", "60 months"], "max_qualifying": 6, "label": "Escenarios de sensibilidad ceteris-paribus; no son ofertas ni recomendaciones."}

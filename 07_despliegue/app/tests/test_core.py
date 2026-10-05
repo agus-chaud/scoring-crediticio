@@ -28,7 +28,7 @@ def spec() -> dict[str, object]:
 
 
 def record() -> dict[str, object]:
-    return {"ingresos_verificados": "Source Verified", "vivienda": "RENT", "finalidad": "debt_consolidation", "num_cuotas": "36 months", "antigüedad_empleo": "5 years", "rating": "B", "ingresos": 50000, "dti": 15.0, "num_lineas_credito": 12, "porc_uso_revolving": 40.0, "principal": 10000, "tipo_interes": 0.15, "imp_cuota": 350, "num_derogatorios": 0}
+    return {"ingresos_verificados": "Source Verified", "vivienda": "RENT", "finalidad": "debt_consolidation", "num_cuotas": "36 months", "antigüedad_empleo": "5 years", "rating": "B", "ingresos": 50000, "dti": 15.0, "num_lineas_credito": 12, "porc_uso_revolving": 40.0, "principal": 10000, "tipo_interes": 0.15, "imp_cuota": 350, "num_derogatorios": 0, "empleo": "Office Manager"}
 
 
 class CoreTests(unittest.TestCase):
@@ -62,7 +62,7 @@ class CoreTests(unittest.TestCase):
         payload = build_payload(compose_payload_values(visible, design["hidden_fields"]))
         for field, value in design["hidden_fields"].items():
             self.assertEqual(payload[field], value)
-        # Los seis ocultos coinciden con el fixture canónico y nunca se muestran como filtros.
+        # Los siete ocultos coinciden con el fixture canónico y nunca se muestran como filtros.
         self.assertNotIn("vivienda", design["visible_fields"])
         self.assertEqual(payload["vivienda"], "RENT")
         self.assertEqual(payload["finalidad"], "debt_consolidation")

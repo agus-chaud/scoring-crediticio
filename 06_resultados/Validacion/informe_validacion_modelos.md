@@ -6,8 +6,8 @@ La evaluación se ejecutó sobre `02_datos/02_Validacion/validacion.pkl`, separa
 
 - Registros evaluados: 35592
 - Casos de incumplimiento: 7006
-- PD ROC-AUC: 0.7059
-- EAD MAE, solo incumplimientos: 0.1542
+- PD ROC-AUC: 0.7087
+- EAD MAE, solo incumplimientos: 0.1533
 - LGD MAE, solo incumplimientos: 0.0885
 
 ## Interpretación

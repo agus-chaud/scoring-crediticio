@@ -23,7 +23,7 @@ REQUIRED_FIELDS = (
     "ingresos_verificados", "vivienda", "finalidad", "num_cuotas",
     "antigüedad_empleo", "rating", "ingresos", "dti", "num_lineas_credito",
     "porc_uso_revolving", "principal", "tipo_interes", "imp_cuota",
-    "num_derogatorios",
+    "num_derogatorios", "empleo",
 )
 
 
@@ -43,6 +43,7 @@ class InputRecord(TypedDict, total=False):
     tipo_interes: float
     imp_cuota: float
     num_derogatorios: float
+    empleo: str | None
 
 
 class ScoreResult(TypedDict):

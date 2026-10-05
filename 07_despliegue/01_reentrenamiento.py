@@ -4,6 +4,7 @@ Run from the project root:
     .venv\\Scripts\\python.exe 07_despliegue\\01_reentrenamiento.py
 """
 
+import sys
 from pathlib import Path
 
 import cloudpickle
@@ -26,20 +27,28 @@ from sklearn.preprocessing import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "04_scripts"))
+
+import sector_empleo  # noqa: E402
+
+# Embed the module's code in the artefact so the API does not need 04_scripts to load it.
+cloudpickle.register_pickle_by_value(sector_empleo)
 TRAIN_PATH = PROJECT_ROOT / "02_datos" / "03_Entrenamiento" / "train.pkl"
 ARTEFACT_PATH = PROJECT_ROOT / "07_despliegue" / "artefacto_pipeline.pkl"
 # The API (and Render) load this copy; it must always match ARTEFACT_PATH.
 API_ARTEFACT_PATH = PROJECT_ROOT / "07_despliegue" / "api" / "artefacto_pipeline.pkl"
 RANDOM_STATE = 42
 
-OHE_COLUMNS = ["ingresos_verificados", "vivienda", "finalidad", "num_cuotas"]
+CATEGORICAL_INPUT_COLUMNS = ["ingresos_verificados", "vivienda", "finalidad", "num_cuotas"]
+# sector_empleo is derived from the raw job title (`empleo`) inside clean_raw_input.
+OHE_COLUMNS = CATEGORICAL_INPUT_COLUMNS + ["sector_empleo"]
 ORDINAL_COLUMNS = ["antigüedad_empleo", "rating"]
 # Skewed numerics (|skew| > 0.75 in training) get Yeo-Johnson; the rest only standard scaling.
 SKEWED_NUMERIC_COLUMNS = ["ingresos", "dti", "num_lineas_credito", "principal", "imp_cuota"]
 SYMMETRIC_NUMERIC_COLUMNS = ["porc_uso_revolving", "tipo_interes"]
 NUMERIC_COLUMNS = SKEWED_NUMERIC_COLUMNS + SYMMETRIC_NUMERIC_COLUMNS
 BINARIZED_COLUMNS = ["num_derogatorios"]
-RAW_INPUT_COLUMNS = OHE_COLUMNS + ORDINAL_COLUMNS + NUMERIC_COLUMNS + BINARIZED_COLUMNS
+RAW_INPUT_COLUMNS = CATEGORICAL_INPUT_COLUMNS + ORDINAL_COLUMNS + NUMERIC_COLUMNS + BINARIZED_COLUMNS + ["empleo"]
 DEFAULT_STATUSES = {
     "Charged Off",
     "Does not meet the credit policy. Status:Charged Off",
@@ -65,6 +74,7 @@ def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.loc[:, RAW_INPUT_COLUMNS].copy()
     result["antigüedad_empleo"] = result["antigüedad_empleo"].fillna("desconocido")
+    result["sector_empleo"] = sector_empleo.asignar_sector(result.pop("empleo"))
     result["dti"] = result["dti"].clip(0, 100)
     result["porc_uso_revolving"] = result["porc_uso_revolving"].clip(0, 100)
     return result
@@ -121,8 +131,8 @@ train_frame, test_frame = train_test_split(
     dataset, test_size=0.30, stratify=dataset["target_pd"], random_state=RANDOM_STATE
 )
 
-# Best configuration from the grid search in Notebooks/05 (DEC-008): Ridge with C=0.01.
-pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=0.0, C=0.01, max_iter=3000, random_state=RANDOM_STATE))
+# Best configuration from the grid search in Notebooks/05 (DEC-008, DEC-010): Ridge with C = 10**-0.5 (~0.316).
+pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=0.0, C=10 ** -0.5, max_iter=3000, random_state=RANDOM_STATE))
 ead_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.1, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=1.0, random_state=RANDOM_STATE))
 lgd_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.01, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=0.5, random_state=RANDOM_STATE))
 
@@ -143,7 +153,7 @@ ead_pipeline.fit(default_dataset, default_dataset["target_ead"])
 lgd_pipeline.fit(default_dataset, default_dataset["target_lgd"])
 
 artefact = {
-    "version": "1.2.0",
+    "version": "1.3.0",
     "raw_input_columns": RAW_INPUT_COLUMNS,
     "models": {"pd": pd_pipeline, "ead": ead_pipeline, "lgd": lgd_pipeline},
     "evaluation": {"pd_roc_auc": float(pd_auc), "ead_mae": float(ead_mae), "lgd_mae": float(lgd_mae)},

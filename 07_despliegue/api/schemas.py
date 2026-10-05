@@ -21,6 +21,8 @@ class RegistroEntrada(BaseModel):
     tipo_interes: float
     imp_cuota: float
     num_derogatorios: float
+    # Raw job title; required so clients state it explicitly, null when unknown ("desconocido" sector).
+    empleo: Optional[str]
 
 
 class ScoringSalida(BaseModel):

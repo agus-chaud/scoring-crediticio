@@ -13,6 +13,7 @@
     "principal": 10000,
     "tipo_interes": 0.15,
     "imp_cuota": 350,
-    "num_derogatorios": 0
+    "num_derogatorios": 0,
+    "empleo": "Office Manager"
   }
 ]
