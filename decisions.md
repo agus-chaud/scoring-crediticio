@@ -57,3 +57,39 @@
 **Se eliminaron** los dos avisos técnicos de la interfaz (`Visualización demostrativa conectada a la API canónica.` y el aviso de valores crudos / no normalización), sin reemplazarlos por otros avisos técnicos. La app sigue enviando los valores crudos sin transformarlos.
 
 **Conclusión:** el panel muestra sólo lo que aporta a explicar riesgo; los campos de contrato que no se muestran viven en `hidden_fields` y se inyectan siempre; la lectura principal es una métrica única contra umbral, con texto siempre presente.
+
+## DEC-006: Preparación de variables en un único preprocesador scikit-learn
+
+**Área:** feature-engineering | **Fase:** A_04 Transformación | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** `Notebooks/04_Transformacion de datos.ipynb` concentra toda la preparación de las 14 variables crudas en un `ColumnTransformer` guardado en `05_modelos/preprocesador.joblib`: `OneHotEncoder(drop='first', min_frequency=200, handle_unknown='infrequent_if_exist')`, `OrdinalEncoder` con orden explícito y `unknown_value=-1` seguido de `StandardScaler`, Yeo-Johnson para las numéricas con asimetría mayor a 0,75 (`ingresos`, `dti`, `num_lineas_credito`, `principal`, `imp_cuota`), `StandardScaler` para `porc_uso_revolving` y `tipo_interes`, y `Binarizer` para `num_derogatorios`. El detalle variable por variable está en `01_Documentos/Diseño_Transformaciones.md`.
+
+**Alternativa descartada:** Encoders sueltos ajustados uno por uno, reagrupación de categorías raras con `replace` de pandas, `MinMaxScaler` para todas las numéricas, k dummies por variable y `unknown_value=12`.
+
+**Por qué la descartamos:** Los pasos sueltos no se guardaban, así que la validación y producción no podían repetirlos. El `replace` quedaba fuera de cualquier pipeline. MinMax no corrige la asimetría (`ingresos`: 2,19), y con eso el 75% de los clientes quedaba por debajo de 0,225. Con k dummies, `num_cuotas` generaba dos columnas con correlación 1,0. Un `rating` desconocido codificado como 12 terminaba en 2,0 después del escalado, un valor atípico artificial.
+
+**Conclusión:** Toda transformación de variables predictoras vive en un objeto scikit-learn persistido y se ajusta solo con datos de entrenamiento. Toda variable excluida se documenta con evidencia (AUC univariante o tasa de impago por nivel). Esta decisión actualiza la premisa de DEC-002 sobre el notebook. La diferencia que queda con `07_despliegue/01_reentrenamiento.py` es el escalado: el notebook usa Yeo-Johnson/Standard y producción todavía usa MinMax.
+
+## DEC-007: Sin rebalanceo de clases para PD
+
+**Área:** modelado | **Fase:** A_06 Balanceo | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** El modelo de PD se entrena con la proporción real de clases, sin remuestreo ni `class_weight`.
+
+**Alternativa descartada:** `class_weight='balanced'`, RandomUnderSampler, RandomOverSampler y SMOTENC-Tomek.
+
+**Por qué la descartamos:** La tasa de impago es 19,9% (16.568 positivos sobre 83.250, unos 570 por variable): no hay escasez de casos positivos. Además, la PD se multiplica por EAD y LGD para calcular la pérdida esperada. El remuestreo desplaza las probabilidades predichas hacia arriba y obliga a recalibrarlas. Sin rebalanceo, la PD media predicha en validación externa es 19,8% frente a una tasa real de 19,7%.
+
+**Conclusión:** Si la probabilidad se usa como magnitud (pérdida esperada, pricing) y la clase minoritaria supera el 15% con miles de casos, no rebalancear. Para ganar recall, mover el umbral de decisión en lugar de alterar los datos.
+
+## DEC-008: Modelización PD con preprocesador dentro de la validación cruzada y validación externa
+
+**Área:** modelado | **Fase:** A_05 Modelización PD | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** `Notebooks/05_Modelizacion Clasificacion PD.ipynb` lee el tablón sin transformar y clona `preprocesador.joblib` dentro del `Pipeline`. Usa partición estratificada con `random_state=42`, `StratifiedKFold(5)` y una grilla `C = logspace(-3, 2, 11)` × `l1_ratio ∈ {0; 0,5; 1}`. Toma `best_estimator_` y evalúa sobre el test interno y sobre `02_datos/02_Validacion/validacion.pkl`, con AUC, Gini, KS, Brier y curva de calibración.
+
+**Alternativa descartada:** Entrenar sobre el tablón ya escalado con las 83.250 filas, partir sin semilla ni estratificación, usar una grilla de `C` entre 0,01 y 1 y reportar solo el AUC.
+
+**Por qué la descartamos:** Escalar antes de partir deja que el test influya en la preparación (fuga de información). Sin semilla, el resultado no se puede reproducir. En la grilla anterior el mejor `C` caía en el borde. El AUC solo mide el ordenamiento, no si la probabilidad es correcta, y eso es lo que necesita la pérdida esperada.
+
+**Conclusión:** Resultado: Ridge (`l1_ratio=0`) con `C=0,01`. AUC 0,703 en validación cruzada, 0,705 en test interno y 0,705 en validación externa (35.592 préstamos con desenlace); Gini 0,41; KS 0,31; Brier 0,145 frente a 0,158 sin modelo; calibración dentro de ±2,6 p.p. por decil. Todo modelo nuevo se evalúa con métricas de ordenamiento y de calibración sobre `validacion.pkl`.

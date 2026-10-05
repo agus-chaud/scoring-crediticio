@@ -3,15 +3,25 @@
 Proyecto de ciencia de datos para estimar el riesgo de crédito a partir de información histórica de préstamos.  
 Implementa tres modelos complementarios: probabilidad de incumplimiento (PD), exposición al incumplimiento (EAD) y pérdida dado el incumplimiento (LGD).  
 Los modelos se exponen con una API FastAPI y se consumen desde un dashboard Streamlit.  
-El resultado es la pérdida esperada: `PD × EAD × LGD`, una métrica util para análisis y no una decisión crediticia, ya que no tenemos los datos necesarios de costo de falsos positivos y el beneficio de verdaderos positivos.
+El resultado es la pérdida esperada, `PD × EAD × LGD`: una métrica útil para análisis, no una decisión crediticia, porque no tenemos los datos de costo de los falsos positivos ni de beneficio de los verdaderos positivos.
+
+Diccionario de campos: [`Diccionario.xlsx`](Diccionario.xlsx) · Decisiones técnicas: [`decisions.md`](decisions.md) · Diseño de transformaciones: [`01_Documentos/Diseño_Transformaciones.md`](01_Documentos/Diseño_Transformaciones.md)
 
 ## Dashboard en vivo
 
 Ver el dashboard en vivo: [https://aa-scoring-crediticio.onrender.com](https://aa-scoring-crediticio.onrender.com).
 Tenele paciencia que cargue :)
+
+## Hallazgos clave
+
+- El modelo de PD ordena el riesgo con **AUC 0,705 (Gini 0,41)** sobre 35.592 préstamos de validación externa que no se usaron para entrenar. El valor coincide con la validación cruzada (0,703): no hay sobreajuste.
+- La probabilidad está **calibrada**: la PD media predicha es **19,8%** frente a una tasa real de **19,7%**, y en cada decil la diferencia es de **±2,6 p.p.** como máximo. Se puede usar tal cual en la pérdida esperada.
+- Revisando el **20%** de clientes con mayor PD se encuentra el **39%** de los impagos.
+- `rating` y `tipo_interes` tienen correlación **0,95**: aportan casi la misma información, y con el escalado anterior el coeficiente de `tipo_interes` salía con el signo cambiado.
+
 ## Problema
 
-Evaluar el riesgo de una cartera de préstamos necesita combinar la probabilidad de incumplimiento con la exposición pendiente y la pérdida potencial. Por eso se transforman registros crudos de préstamos en estimaciones consistentes de esas tres dimensiones.
+Evaluar el riesgo de una cartera de préstamos requiere combinar la probabilidad de incumplimiento con la exposición pendiente y la pérdida potencial. Hay tres cosas que pueden sesgar el resultado si no se controlan: préstamos todavía vigentes etiquetados como buenos pagadores, transformaciones ajustadas con datos de validación (fuga de información) y probabilidades descalibradas, que inflan o subestiman la pérdida esperada aunque el modelo ordene bien.
 
 ## Objetivo
 
@@ -19,40 +29,88 @@ Construir un flujo reproducible de scoring crediticio que reciba 14 variables cr
 
 ## Enfoque técnico
 
-- **Metodología:** preparación determinística de variables, separación entrenamiento/validación con `random_state=42`, y preprocesamiento encapsulado dentro de cada `Pipeline` para evitar leakage. .
-- **Modelos usados:** regresión logística con regularización L1 para PD; `HistGradientBoostingRegressor` para EAD y LGD.
-- **Pipeline:** datos de entrenamiento → limpieza y transformación → entrenamiento/evaluación → serialización de `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
+1. **Importación** (`01_ImportacionDatos`): separación de `validacion.pkl` antes de cualquier análisis.
+2. **Calidad** (`02_Calidad de Datos`): eliminación de ingresos > 400.000, `dti = 999` y préstamos sin desenlace; imputaciones y recortes a límites de negocio.
+3. **EDA** (`03_EDA`): definición de `target_pd` y tasa de impago por variable.
+4. **Transformación** (`04_Transformacion de datos`): targets de EAD y LGD, y un `ColumnTransformer` persistido en `05_modelos/preprocesador.joblib`.
+5. **Modelización** (`05`–`07`): PD con regresión logística; EAD y LGD con modelos de regresión entrenados solo sobre defaults.
+6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
+
+Modelos en producción: regresión logística con regularización L1 para PD; `HistGradientBoostingRegressor` para EAD y LGD. En el notebook 05, la mejor configuración de PD resultó Ridge (`l1_ratio=0`, `C=0,01`), con el mismo AUC que L1.
+
+## Decisiones técnicas relevantes
+
+### Un único preprocesador scikit-learn ([DEC-006](decisions.md))
+
+Los encoders se ajustaban uno por uno, no se guardaban y las categorías raras se reagrupaban con `replace` de pandas: validación y producción no podían repetir la preparación. Ahora un `ColumnTransformer` guardado con joblib agrupa las categorías con menos de 200 casos, codifica las desconocidas sin fallar y aplica Yeo-Johnson a las numéricas asimétricas (la asimetría de `ingresos` bajó de 2,19 a 0,13). Se usa `drop='first'` en One Hot porque, con k columnas, una se deduce de las demás y la regresión logística no tolera esa redundancia.
+
+### Preprocesador ajustado dentro de la validación cruzada ([DEC-008](decisions.md))
+
+Si el escalado se ajusta con todas las filas antes de partir los datos, el test influye en la preparación y la métrica sale optimista. El notebook 05 clona el preprocesador sin ajustar y lo mete en el `Pipeline`, así cada fold lo ajusta solo con su parte de entrenamiento. La partición es estratificada y con `random_state=42`.
+
+### Métricas de ordenamiento y de calibración ([DEC-008](decisions.md))
+
+El AUC dice si el modelo ordena bien, no si la probabilidad es correcta, y la pérdida esperada multiplica la probabilidad. Por eso el modelo se evalúa con AUC/Gini/KS (ordenamiento) y con Brier y curva de calibración (exactitud de la probabilidad), sobre el test interno y sobre `validacion.pkl`.
+
+### Sin rebalanceo de clases ([DEC-007](decisions.md))
+
+La tasa de impago es 19,9% (16.568 casos): no hay escasez de positivos. Remuestrear desplazaría la PD hacia arriba y obligaría a recalibrarla antes de calcular la pérdida esperada.
+
+### Contrato crudo en la API ([DEC-001](decisions.md), [DEC-003](decisions.md))
+
+El cliente Streamlit no carga artefactos de ML ni transforma categorías o escalas; la API concentra todo el scoring. Así hay una sola implementación de la preparación en producción.
+
+### Umbral demostrativo ([DEC-004](decisions.md))
+
+El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no calibrada. No representa una aprobación, oferta, política de riesgo ni asesoramiento financiero.
+
+## Resultados principales
+
+| Área analizada | Hallazgo | Interpretación |
+|---|---|---|
+| Ordenamiento PD | AUC 0,705 · Gini 0,41 · KS 0,31 en validación externa | Separa buenos y malos pagadores claramente mejor que el azar; el resultado es estable entre CV, test y validación externa. |
+| Calibración PD | Brier 0,145 frente a 0,158 sin modelo; ±2,6 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
+| Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente a revisar al azar. |
+| Variables descartadas | `num_meses_desde_ult_retraso` y `num_cancelaciones_12meses`: AUC ≈ 0,50 | No aportan información y se excluyeron. |
+| Variables con señal fuera del modelo | `num_hipotecas`, `porc_tarjetas_75p` (AUC ≈ 0,55); `sector_empleo = desconocido`: 26,6% de impago | Candidatas para una próxima versión; hoy quedan fuera para no cambiar el contrato de 14 campos. |
 
 ## Funcionalidades entregadas
 
 ### Dashboard y visualizaciones
 
 - Formulario con ocho variables editables: monto, cuotas, tasa, cuota, ingresos, DTI, uso revolving y rating.
-- Kpi de resultado con pérdida esperada relativa, banda de riesgo y métricas secundarias de PD, EAD y LGD.
-- Gráfico de barra horizontal  sobre una escala demostrativa de 0–25%, con referencias de 5% y 10%.
+- KPI de resultado con pérdida esperada relativa, banda de riesgo y métricas secundarias de PD, EAD y LGD.
+- Gráfico de barra horizontal sobre una escala demostrativa de 0–25%, con referencias de 5% y 10%.
 - Escenarios de sensibilidad *ceteris paribus*: exploran hasta seis alternativas que no incrementan el monto principal.
 - Recuperación ante *cold starts* de la API mediante un calentamiento acotado de `/health` y un único reintento.
-
-### Decisiones técnicas relevantes
-
-- **Reproducibilidad y leakage:** el artefacto productivo fija `random_state=42` y ajusta transformadores dentro del pipeline, a diferencia del flujo histórico de notebooks.
-- **Contrato crudo:** el cliente Streamlit no carga artefactos de ML ni transforma categorías o escalas; la API  concentra todo el scoring.
-- **Límite demostrativo:** el umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no calibrada. No representa una aprobación, oferta, política de riesgo ni asesoramiento financiero.
-- **Mejora pendiente:** cuantificar el coste de falsos positivos y el beneficio de verdaderos positivos para seleccionar un umbral que maximice el valor esperado.
 
 ## Estructura del proyecto
 
 ```text
 AA_scoring-crediticio/
+├── 01_Documentos/
+│   └── Diseño_Transformaciones.md        # Matriz de transformaciones, variable por variable
 ├── 02_datos/
 │   ├── 01_Originales/prestamos.csv       # Datos fuente de préstamos
-│   └── 03_Entrenamiento/train.pkl        # Datos preparados para entrenamiento
-├── Notebooks/                            # Flujo histórico: importación, calidad, EDA, transformación y modelos
+│   ├── 02_Validacion/validacion.pkl      # Validación externa, separada antes de entrenar
+│   └── 03_Entrenamiento/                 # train.pkl y tablones derivados (calidad, EDA, PD, EAD, LGD)
+├── 05_modelos/
+│   └── preprocesador.joblib              # ColumnTransformer generado por el notebook 04
+├── Notebooks/
+│   ├── 01_ImportacionDatos.ipynb         # Carga y separación de validación
+│   ├── 02_Calidad de Datos.ipynb         # Limpieza, imputación y filtros
+│   ├── 03_EDA.ipynb                      # Target PD y análisis exploratorio
+│   ├── 04_Transformacion de datos.ipynb  # Targets EAD/LGD y preprocesador
+│   ├── 05_Modelizacion Clasificacion PD.ipynb  # Modelo PD, métricas de crédito y validación externa
+│   ├── 06_Modelizacion Regresion EAD.ipynb     # Modelo EAD
+│   ├── 07_Modelizacion Regresion LGD.ipynb     # Modelo LGD
+│   └── 08_Preproduccion.ipynb            # Flujo consolidado
 ├── 06_resultados/Validacion/
-│   ├── informe_validacion_modelos.md     # Informe de validación
+│   ├── informe_validacion_modelos.md     # Informe de validación del artefacto
 │   └── metricas_validacion_externa.json  # Métricas externas de PD, EAD y LGD
 ├── 07_despliegue/
 │   ├── 01_reentrenamiento.py             # Entrena y genera el artefacto reproducible
+│   ├── 03_validacion_externa.py          # Evalúa el artefacto sobre validacion.pkl
 │   ├── artefacto_pipeline.pkl            # Pipelines PD, EAD y LGD serializados
 │   ├── api/
 │   │   ├── main.py                       # API FastAPI: /health y /predict
@@ -64,6 +122,7 @@ AA_scoring-crediticio/
 │       ├── app_core.py                   # Lógica del cliente y presentación
 │       ├── requirements.txt              # Dependencias del dashboard
 │       └── README.md                     # Instrucciones específicas de la app
+├── odd/tasks/                            # Seguimiento de tareas de cada mejora
 ├── decisions.md                          # Decisiones técnicas del proyecto
 └── README.md                             # Este documento
 ```
@@ -73,18 +132,20 @@ AA_scoring-crediticio/
 - **Python:** 3.13.7 para los despliegues configurados en Render.
 - **Modelado y API:** FastAPI, Uvicorn, pandas, NumPy, scikit-learn, SciPy, joblib y cloudpickle.
 - **Dashboard:** Streamlit, requests y Plotly.
+- **Notebooks:** Jupyter, matplotlib, seaborn y python-dotenv.
 - **Modelos:** `LogisticRegression`, `HistGradientBoostingRegressor`, `Pipeline` y `ColumnTransformer` de scikit-learn.
 
 ## Datos y artefactos
 
-- **Origen:** `02_datos/01_Originales/prestamos.csv` y tablas derivadas almacenadas en `02_datos/03_Entrenamiento/`.
+- **Origen:** `02_datos/01_Originales/prestamos.csv` y tablas derivadas en `02_datos/03_Entrenamiento/`.
 - **Variables de entrada:** `ingresos_verificados`, `vivienda`, `finalidad`, `num_cuotas`, `antigüedad_empleo`, `rating`, `ingresos`, `dti`, `num_lineas_credito`, `porc_uso_revolving`, `principal`, `tipo_interes`, `imp_cuota` y `num_derogatorios`.
-- **Artefacto de producción:** `07_despliegue/artefacto_pipeline.pkl`, que contiene los tres pipelines y sus métricas de evaluación.
+- **Preprocesador de los notebooks:** `05_modelos/preprocesador.joblib` (14 variables crudas → 27 columnas).
+- **Artefacto de producción:** `07_despliegue/artefacto_pipeline.pkl`, con los tres pipelines y sus métricas de evaluación.
 - **Salidas:** `score_pd`, `score_ead`, `score_lgd` y `perdida_esperada_relativa`.
 
 ## Instalación y ejecución local
 
-> Requiere Python 3.13 o una versión compatible con las dependencias fijadas.
+> Requiere Python 3.13 o una versión compatible con las dependencias fijadas. Los datos (`02_datos/`) y los artefactos `.pkl`/`.joblib` no se versionan, salvo el artefacto de la API.
 
 ```powershell
 # Crear y activar un entorno virtual (si aún no existe)
@@ -98,6 +159,20 @@ python -m pip install -r 07_despliegue\app\requirements.txt
 # Opcional: regenerar el artefacto de modelado
 python 07_despliegue\01_reentrenamiento.py
 ```
+
+### Notebooks de transformación y modelización PD
+
+No hay un archivo de dependencias para los notebooks: se instalan aparte. El notebook 04 genera `preprocesador.joblib` y los tablones; el 05 los necesita, así que el orden importa. Las rutas son relativas a `Notebooks/` y los nombres de archivo tienen espacios.
+
+```powershell
+python -m pip install jupyter matplotlib seaborn python-dotenv
+
+cd Notebooks
+..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "04_Transformacion de datos.ipynb"
+..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "05_Modelizacion Clasificacion PD.ipynb"
+```
+
+### API y dashboard
 
 Iniciá la API en una terminal:
 
@@ -121,6 +196,14 @@ El dashboard usa por defecto `http://127.0.0.1:8000`. Para conectar una API desp
 | `GET` | `/health` | Comprueba el estado del servicio. |
 | `POST` | `/predict` | Recibe una lista de registros crudos y devuelve las cuatro métricas de scoring. |
 | `GET` | `/docs` | Documentación interactiva generada por FastAPI. |
+
+## Limitaciones y próximos pasos
+
+- **Notebooks y producción usan preparaciones distintas.** `07_despliegue/01_reentrenamiento.py` todavía escala con MinMax y reagrupa categorías con pandas; el notebook 04 usa Yeo-Johnson/Standard y agrupa dentro del encoder. Hasta alinearlos, las métricas de los notebooks no describen exactamente el artefacto desplegado.
+- **La validación externa del despliegue incluye préstamos sin desenlace.** `03_validacion_externa.py` evalúa 59.833 filas y cuenta los préstamos vigentes (`Current`, `Late…`) como buenos pagadores; con solo los préstamos con desenlace quedan 35.592. Su AUC (0,703) no es comparable con el del notebook 05.
+- **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
+- **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento. Si un mismo cliente tiene varios préstamos, la validación puede ser algo optimista.
+- **Sin umbral de decisión.** Falta cuantificar el costo de los falsos positivos y el beneficio de los verdaderos positivos para elegir un umbral que maximice el valor esperado.
 
 ## Notas de seguridad y uso responsable
 

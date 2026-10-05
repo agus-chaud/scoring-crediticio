@@ -35,12 +35,28 @@
 
 ## Decisiones tomadas
 
-- Un único `ColumnTransformer` guardado con joblib reemplaza a los encoders sueltos y al `replace` de pandas.
-- Familia lineal → `StandardScaler`/Yeo-Johnson en lugar de MinMax: MinMax no corrige la asimetría y un valor extremo comprime al resto.
-- Se mantiene el contrato de 14 variables crudas de la API (DEC-001); las variables con señal descartadas pasan a la fase de selección.
+- [DEC-006](../decisions.md#dec-006-preparación-de-variables-en-un-único-preprocesador-scikit-learn): estrategia de transformación (este documento).
+- [DEC-007](../decisions.md#dec-007-sin-rebalanceo-de-clases-para-pd): sin rebalanceo de clases.
+- [DEC-008](../decisions.md#dec-008-modelización-pd-con-preprocesador-dentro-de-la-validación-cruzada-y-validación-externa): el preprocesador se clona y ajusta dentro de la validación cruzada del modelo PD.
+- Se mantiene el contrato de 14 variables crudas de la API ([DEC-001](../decisions.md)).
+
+## Salidas
+
+| Archivo | Contenido |
+|---|---|
+| `05_modelos/preprocesador.joblib` | `ColumnTransformer` ajustado sobre las 83.250 filas de entrenamiento. |
+| `02_datos/03_Entrenamiento/df_tablon_pd_sin_transformar.pkl` | 14 variables crudas + `target_pd`, índice `id_cliente`. Entrada del notebook 05. |
+| `02_datos/03_Entrenamiento/df_tablon_pd.pkl` | 27 columnas transformadas + `target_pd` (83.250 filas). |
+| `02_datos/03_Entrenamiento/df_tablon_ead.pkl`, `df_tablon_lgd.pkl` | 27 columnas transformadas + target, solo defaults (16.568 filas). |
+
+## Validaciones realizadas
+
+Filas preservadas, target alineada por `id_cliente`, sin variables originales ni intermedias en la salida, sin nulos,
+sin columnas duplicadas, sin multicolinealidad perfecta entre binarias y una fila con categorías inventadas
+transformada sin error. El preprocesador recargado desde joblib reproduce el tablón exactamente.
 
 ## Riesgos identificados
 
-- **Colinealidad:** `oe__rating` vs `ss__tipo_interes` y `yj__principal` vs `yj__imp_cuota` siguen muy correlacionadas (alrededor de 0,95 en el tablón anterior). Lo resuelve la fase de selección de variables.
-- **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): pocos casos, conviene revisarlos en calidad.
+- **Colinealidad:** en el tablón transformado, `oe__rating` vs `ss__tipo_interes` tienen correlación 0,95 y `yj__principal` vs `yj__imp_cuota`, 0,97. Con Ridge, los coeficientes de `rating` y `tipo_interes` salen los dos positivos (con el diseño anterior, `tipo_interes` salía negativo), pero aportan casi la misma información: la fase de selección de variables debería quedarse con una de cada par.
+- **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): son pocos casos, conviene revisarlos en calidad.
 - **Divergencia con producción:** `07_despliegue/01_reentrenamiento.py` todavía usa MinMax y reagrupa con pandas. Si se adopta este diseño, hay que alinearlo.
