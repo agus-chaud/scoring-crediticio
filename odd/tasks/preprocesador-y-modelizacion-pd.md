@@ -28,13 +28,13 @@ Mode: off (no project/session configuration; notebooks have no test runner). Che
 with `.venv` nbconvert; hard asserts inside the notebook (FASE 4 validations, round-trip).
 
 ## Tasks
-- [ ] T1 — 04: sklearn preprocessor (OHE drop='first' + min_frequency, ordinal unknown=-1 + StandardScaler,
+- [x] T1 — 04: sklearn preprocessor (OHE drop='first' + min_frequency, ordinal unknown=-1 + StandardScaler,
   Yeo-Johnson on skewed numerics, Binarizer), evidence for discarded variables, FASE 4 validations,
   persisted joblib, design matrix, regenerated tablones. Route: inline (parent already held the full audit context).
-- [ ] T2 — 05: raw tablón + cloned preprocessor inside the Pipeline, stratified seeded split + StratifiedKFold,
+- [x] T2 — 05: raw tablón + cloned preprocessor inside the Pipeline, stratified seeded split + StratifiedKFold,
   external evaluation on `validacion.pkl`, logspace grid, `best_estimator_`, Gini/KS/Brier/calibration with plain
   explanations, chart fixes. Route: inline.
-- [ ] T3 — Smoke-run 06 and 07 on the regenerated tablones. Route: inline.
+- [x] T3 — Smoke-run 06 and 07 on the regenerated tablones. Route: inline.
 
 ## Acceptance criteria
 - 04 executes end to end; all FASE 4 asserts pass; joblib round-trips.
@@ -44,7 +44,19 @@ with `.venv` nbconvert; hard asserts inside the notebook (FASE 4 validations, ro
 Strategy: ask-on-risk. Commits per task on `feat/preprocesador-y-modelizacion-pd`. RDD: off (global).
 
 ## Progress / evidence
-(pending)
+- T1 done — commit `98cabbb`. 04 executed end to end with nbconvert; 7 FASE 4 asserts passed; synthetic unseen-category
+  row transformed without NaN; joblib round-trip `assert_frame_equal` passed. 14 raw inputs → 27 columns;
+  `ingresos` skew 2.19 → 0.13. Tablones: PD (83250, 28), EAD/LGD (16568, 28).
+- T2 done — commit `9cfb5bb`. 05 executed end to end. Best params C=0.01, l1_ratio=0 (inside the grid).
+  AUC CV 0.703 · test 0.705 · external `validacion.pkl` 0.705 (35,592 resolved loans); Gini 0.41; KS 0.305;
+  Brier 0.145 vs 0.158 baseline; calibration deciles within ±0.026. `rating` and `tipo_interes` coefficients now both positive.
+- T3 done — 06 and 07 executed without errors on the regenerated tablones (copies in scratchpad; originals untouched).
+- [x] T1 · [x] T2 · [x] T3
+
+## Follow-ups (not authorized, not done)
+- `07_despliegue/01_reentrenamiento.py` still uses MinMax + pandas grouping: align it if this design is adopted.
+- `07_despliegue/03_validacion_externa.py` labels unresolved loans (`Current`, `Late…`) as non-default.
+- Candidate variables with signal: `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`, `sector_empleo` (ds-07).
 
 ## Next step
-T1.
+User review; push/PR are the user's decision.
