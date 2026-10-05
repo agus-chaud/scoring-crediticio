@@ -16,24 +16,28 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import mean_absolute_error, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import Binarizer, FunctionTransformer, MinMaxScaler, OneHotEncoder, OrdinalEncoder
+from sklearn.preprocessing import (
+    Binarizer,
+    FunctionTransformer,
+    OneHotEncoder,
+    OrdinalEncoder,
+    PowerTransformer,
+    StandardScaler,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TRAIN_PATH = PROJECT_ROOT / "02_datos" / "03_Entrenamiento" / "train.pkl"
 ARTEFACT_PATH = PROJECT_ROOT / "07_despliegue" / "artefacto_pipeline.pkl"
+# The API (and Render) load this copy; it must always match ARTEFACT_PATH.
+API_ARTEFACT_PATH = PROJECT_ROOT / "07_despliegue" / "api" / "artefacto_pipeline.pkl"
 RANDOM_STATE = 42
 
 OHE_COLUMNS = ["ingresos_verificados", "vivienda", "finalidad", "num_cuotas"]
 ORDINAL_COLUMNS = ["antigüedad_empleo", "rating"]
-NUMERIC_COLUMNS = [
-    "ingresos",
-    "dti",
-    "num_lineas_credito",
-    "porc_uso_revolving",
-    "principal",
-    "tipo_interes",
-    "imp_cuota",
-]
+# Skewed numerics (|skew| > 0.75 in training) get Yeo-Johnson; the rest only standard scaling.
+SKEWED_NUMERIC_COLUMNS = ["ingresos", "dti", "num_lineas_credito", "principal", "imp_cuota"]
+SYMMETRIC_NUMERIC_COLUMNS = ["porc_uso_revolving", "tipo_interes"]
+NUMERIC_COLUMNS = SKEWED_NUMERIC_COLUMNS + SYMMETRIC_NUMERIC_COLUMNS
 BINARIZED_COLUMNS = ["num_derogatorios"]
 RAW_INPUT_COLUMNS = OHE_COLUMNS + ORDINAL_COLUMNS + NUMERIC_COLUMNS + BINARIZED_COLUMNS
 DEFAULT_STATUSES = {
@@ -49,6 +53,8 @@ EMPLOYMENT_ORDER = [
     "5 years", "6 years", "7 years", "8 years", "9 years", "10+ years",
 ]
 RATING_ORDER = ["A", "B", "C", "D", "E", "F", "G"]
+# Categories seen fewer times than this share one infrequent column (e.g. vivienda ANY/NONE/OTHER).
+MIN_CATEGORY_FREQUENCY = 200
 
 
 def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
@@ -59,27 +65,37 @@ def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.loc[:, RAW_INPUT_COLUMNS].copy()
     result["antigüedad_empleo"] = result["antigüedad_empleo"].fillna("desconocido")
-    result["vivienda"] = result["vivienda"].replace({"ANY": "MORTGAGE", "NONE": "MORTGAGE", "OTHER": "MORTGAGE"})
-    result["finalidad"] = result["finalidad"].replace({"wedding": "other", "educational": "other", "renewable_energy": "other"})
     result["dti"] = result["dti"].clip(0, 100)
     result["porc_uso_revolving"] = result["porc_uso_revolving"].clip(0, 100)
     return result
 
 
 def make_preprocessor() -> Pipeline:
-    categorical = OneHotEncoder(drop="first", handle_unknown="ignore", sparse_output=False)
+    """Mirror of the preprocessor designed in Notebooks/04 (see 01_Documentos/Diseño_Transformaciones.md)."""
+    categorical = OneHotEncoder(
+        drop="first",
+        min_frequency=MIN_CATEGORY_FREQUENCY,
+        handle_unknown="infrequent_if_exist",
+        sparse_output=False,
+    )
     ordinal = Pipeline([
+        ("impute", SimpleImputer(strategy="constant", fill_value="desconocido")),
         ("encode", OrdinalEncoder(categories=[EMPLOYMENT_ORDER, RATING_ORDER], handle_unknown="use_encoded_value", unknown_value=-1)),
-        ("scale", MinMaxScaler()),
+        ("scale", StandardScaler()),
     ])
-    numeric = Pipeline([("impute", SimpleImputer(strategy="constant", fill_value=0)), ("scale", MinMaxScaler())])
+    skewed = Pipeline([
+        ("impute", SimpleImputer(strategy="median")),
+        ("yeo_johnson", PowerTransformer(method="yeo-johnson", standardize=True)),
+    ])
+    symmetric = Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())])
     binary = Pipeline([("impute", SimpleImputer(strategy="constant", fill_value=0)), ("binarize", Binarizer(threshold=0))])
     columns = ColumnTransformer([
-        ("categorical", categorical, OHE_COLUMNS),
-        ("ordinal", ordinal, ORDINAL_COLUMNS),
-        ("numeric", numeric, NUMERIC_COLUMNS),
-        ("binary", binary, BINARIZED_COLUMNS),
-    ], remainder="drop", verbose_feature_names_out=False)
+        ("ohe", categorical, OHE_COLUMNS),
+        ("oe", ordinal, ORDINAL_COLUMNS),
+        ("yj", skewed, SKEWED_NUMERIC_COLUMNS),
+        ("ss", symmetric, SYMMETRIC_NUMERIC_COLUMNS),
+        ("bin", binary, BINARIZED_COLUMNS),
+    ], remainder="drop")
     return Pipeline([("clean", FunctionTransformer(clean_raw_input, validate=False)), ("columns", columns)])
 
 
@@ -105,7 +121,8 @@ train_frame, test_frame = train_test_split(
     dataset, test_size=0.30, stratify=dataset["target_pd"], random_state=RANDOM_STATE
 )
 
-pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=1.0, C=1.0, max_iter=3000, random_state=RANDOM_STATE))
+# Best configuration from the grid search in Notebooks/05 (DEC-008): Ridge with C=0.01.
+pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=0.0, C=0.01, max_iter=3000, random_state=RANDOM_STATE))
 ead_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.1, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=1.0, random_state=RANDOM_STATE))
 lgd_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.01, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=0.5, random_state=RANDOM_STATE))
 
@@ -126,16 +143,16 @@ ead_pipeline.fit(default_dataset, default_dataset["target_ead"])
 lgd_pipeline.fit(default_dataset, default_dataset["target_lgd"])
 
 artefact = {
-    "version": "1.1.0",
+    "version": "1.2.0",
     "raw_input_columns": RAW_INPUT_COLUMNS,
     "models": {"pd": pd_pipeline, "ead": ead_pipeline, "lgd": lgd_pipeline},
     "evaluation": {"pd_roc_auc": float(pd_auc), "ead_mae": float(ead_mae), "lgd_mae": float(lgd_mae)},
     "training_rows": {"pd": int(len(dataset)), "ead_lgd": int(len(default_dataset))},
 }
-with ARTEFACT_PATH.open("wb") as stream:
-    cloudpickle.dump(artefact, stream)
-
-print(f"Artefact written to: {ARTEFACT_PATH}")
+for path in (ARTEFACT_PATH, API_ARTEFACT_PATH):
+    with path.open("wb") as stream:
+        cloudpickle.dump(artefact, stream)
+    print(f"Artefact written to: {path}")
 print(f"PD ROC-AUC: {pd_auc:.4f}")
 print(f"EAD MAE: {ead_mae:.4f}")
 print(f"LGD MAE: {lgd_mae:.4f}")
