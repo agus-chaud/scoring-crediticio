@@ -26,7 +26,7 @@ def predict(records: list[RegistroEntrada]) -> list[dict]:
 @app.get("/debug")
 def debug() -> dict:
     try:
-        payload = json.loads((BASE_DIR / "test_payload.json").read_text(encoding="utf-8"))
+        payload = json.loads((BASE_DIR / "test_payload.json").read_text(encoding="utf-8-sig"))
         result = scoring_df(pd.DataFrame(payload))
         return {
             "python_version": platform.python_version(),
