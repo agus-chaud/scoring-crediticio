@@ -105,7 +105,7 @@ train_frame, test_frame = train_test_split(
     dataset, test_size=0.30, stratify=dataset["target_pd"], random_state=RANDOM_STATE
 )
 
-pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", penalty="l1", C=1.0, max_iter=3000, random_state=RANDOM_STATE))
+pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=1.0, C=1.0, max_iter=3000, random_state=RANDOM_STATE))
 ead_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.1, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=1.0, random_state=RANDOM_STATE))
 lgd_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.01, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=0.5, random_state=RANDOM_STATE))
 
