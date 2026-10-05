@@ -41,6 +41,9 @@ DEFAULT_STATUSES = {
     "Does not meet the credit policy. Status:Charged Off",
     "Default",
 }
+# Loans without a final outcome cannot be labelled as good or bad payers.
+UNRESOLVED_STATUSES = {"Current", "In Grace Period", "Late (16-30 days)", "Late (31-120 days)"}
+DTI_MISSING_CODE = 999
 EMPLOYMENT_ORDER = [
     "desconocido", "< 1 year", "1 year", "2 years", "3 years", "4 years",
     "5 years", "6 years", "7 years", "8 years", "9 years", "10+ years",
@@ -58,6 +61,8 @@ def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
     result["antigüedad_empleo"] = result["antigüedad_empleo"].fillna("desconocido")
     result["vivienda"] = result["vivienda"].replace({"ANY": "MORTGAGE", "NONE": "MORTGAGE", "OTHER": "MORTGAGE"})
     result["finalidad"] = result["finalidad"].replace({"wedding": "other", "educational": "other", "renewable_energy": "other"})
+    result["dti"] = result["dti"].clip(0, 100)
+    result["porc_uso_revolving"] = result["porc_uso_revolving"].clip(0, 100)
     return result
 
 
@@ -85,6 +90,8 @@ def make_model_pipeline(model) -> Pipeline:
 def build_targets(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     result = result.loc[result["ingresos"].fillna(0) <= 400000].copy()
+    result = result.loc[result["dti"] != DTI_MISSING_CODE]
+    result = result.loc[~result["estado"].isin(UNRESOLVED_STATUSES)].copy()
     result["target_pd"] = result["estado"].isin(DEFAULT_STATUSES).astype(int)
     pending = result["principal"] - result["imp_amortizado"]
     result["target_ead"] = (pending / result["principal"]).replace([np.inf, -np.inf], np.nan).fillna(0).clip(0, 1)
@@ -119,7 +126,7 @@ ead_pipeline.fit(default_dataset, default_dataset["target_ead"])
 lgd_pipeline.fit(default_dataset, default_dataset["target_lgd"])
 
 artefact = {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "raw_input_columns": RAW_INPUT_COLUMNS,
     "models": {"pd": pd_pipeline, "ead": ead_pipeline, "lgd": lgd_pipeline},
     "evaluation": {"pd_roc_auc": float(pd_auc), "ead_mae": float(ead_mae), "lgd_mae": float(lgd_mae)},
