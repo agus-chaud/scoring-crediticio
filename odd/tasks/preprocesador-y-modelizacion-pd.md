@@ -53,10 +53,15 @@ Strategy: ask-on-risk. Commits per task on `feat/preprocesador-y-modelizacion-pd
 - T3 done — 06 and 07 executed without errors on the regenerated tablones (copies in scratchpad; originals untouched).
 - [x] T1 · [x] T2 · [x] T3
 
-## Follow-ups (not authorized, not done)
-- `07_despliegue/01_reentrenamiento.py` still uses MinMax + pandas grouping: align it if this design is adopted.
-- `07_despliegue/03_validacion_externa.py` labels unresolved loans (`Current`, `Late…`) as non-default.
-- Candidate variables with signal: `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`, `sector_empleo` (ds-07).
+## Follow-up round (authorized 2026-10-05)
+- [x] T4 — Align `01_reentrenamiento.py` with the notebook preprocessor and PD params; artefact 1.2.0 written to both copies.
+  Commit `9189d52`. Evidence: internal AUC 0.7046; API `/predict` 200 on `test_payload.json`; app tests 15/15 OK
+  (`unittest discover -s tests`; `-t .` fails on base too because of a pytest-style import).
+- [x] T5 — `03_validacion_externa.py` applies training row filters. Commit `7210166`. Evidence: 35,592 rows, AUC 0.7059
+  (old artefact on same rows 0.7045; with unresolved loans 0.686 and real rate 11.7% vs PD 19.9%).
+- [x] T6 — Evaluate candidate variables (5-fold CV, Ridge C=0.01): base 0.7041 ± 0.0052; +num_hipotecas 0.7046;
+  +porc_tarjetas_75p 0.7042; +tiene_descripcion 0.7048; +sector_empleo 0.7077; all four 0.7092.
+- [ ] T7 — Decide whether to add candidates to the API contract (14 → 18 fields). Waiting on the user.
 
 ## Next step
-User review; push/PR are the user's decision.
+User decision on T7; push/PR are the user's decision.

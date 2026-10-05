@@ -25,10 +25,10 @@
 | num_derogatorios | num_discreta | Binarizer(threshold=0) | binaria | — | — | NO | SÍ | SÍ | `bin__num_derogatorios` | 1 = al menos un derogatorio (14.147 filas). |
 | num_meses_desde_ult_retraso | num_continua | — | — | — | — | — | — | NO | — | AUC univariante 0,504; tasa de impago 19,8% / 20,5% / 19,7% por tramo de cuantiles. |
 | num_cancelaciones_12meses | num_discreta | — | — | — | — | — | — | NO | — | AUC univariante 0,501. |
-| num_hipotecas | num_discreta | — | — | — | — | — | — | NO | — | AUC 0,547: tiene señal. Fuera para mantener el contrato de 14 campos de la API; candidata para selección de variables. |
-| porc_tarjetas_75p | num_continua | — | — | — | — | — | — | NO | — | AUC 0,552: tiene señal. Igual que `num_hipotecas`. |
-| tiene_descripcion | binaria | — | — | — | — | — | — | NO | — | Impago 15,7% con descripción vs 20,3% sin ella. Candidata. |
-| sector_empleo | cat_nominal | — | — | — | — | — | — | NO | — | Impago 26,6% en `desconocido` vs 14–25% en el resto. Candidata. |
+| num_hipotecas | num_discreta | — | — | — | — | — | — | NO | — | AUC univariante 0,547, pero sumada al modelo aporta +0,0005 de AUC en CV (ruido ±0,005). |
+| porc_tarjetas_75p | num_continua | — | — | — | — | — | — | NO | — | AUC univariante 0,552; sumada al modelo, +0,0001. |
+| tiene_descripcion | binaria | — | — | — | — | — | — | NO | — | Impago 15,7% con descripción vs 20,3% sin ella; sumada al modelo, +0,0007. |
+| sector_empleo | cat_nominal | — | — | — | — | — | — | NO | — | Impago 26,6% en `desconocido` vs 14–25% en el resto; sumada al modelo, +0,0036. Las 4 juntas: +0,0051. Requiere la clasificación por regex del título de empleo en producción. |
 | imp_amortizado, imp_recuperado, estado | — | — | — | — | — | — | — | NO | — | Se conocen después del desenlace del préstamo: fuga de información. Solo se usan para construir las targets. |
 | id_cliente | — | — | — | — | — | — | — | NO (índice) | — | Identificador. |
 | target_pd / target_ead / target_lgd | target | — | — | — | — | NO | SÍ | SÍ | igual | La target se incluye sin transformar. |
@@ -59,4 +59,4 @@ transformada sin error. El preprocesador recargado desde joblib reproduce el tab
 
 - **Colinealidad:** en el tablón transformado, `oe__rating` vs `ss__tipo_interes` tienen correlación 0,95 y `yj__principal` vs `yj__imp_cuota`, 0,97. Con Ridge, los coeficientes de `rating` y `tipo_interes` salen los dos positivos (con el diseño anterior, `tipo_interes` salía negativo), pero aportan casi la misma información: la fase de selección de variables debería quedarse con una de cada par.
 - **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): son pocos casos, conviene revisarlos en calidad.
-- **Divergencia con producción:** `07_despliegue/01_reentrenamiento.py` todavía usa MinMax y reagrupa con pandas. Si se adopta este diseño, hay que alinearlo.
+- **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0. Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.

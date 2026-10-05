@@ -68,7 +68,7 @@
 
 **Por qué la descartamos:** Los pasos sueltos no se guardaban, así que la validación y producción no podían repetirlos. El `replace` quedaba fuera de cualquier pipeline. MinMax no corrige la asimetría (`ingresos`: 2,19), y con eso el 75% de los clientes quedaba por debajo de 0,225. Con k dummies, `num_cuotas` generaba dos columnas con correlación 1,0. Un `rating` desconocido codificado como 12 terminaba en 2,0 después del escalado, un valor atípico artificial.
 
-**Conclusión:** Toda transformación de variables predictoras vive en un objeto scikit-learn persistido y se ajusta solo con datos de entrenamiento. Toda variable excluida se documenta con evidencia (AUC univariante o tasa de impago por nivel). Esta decisión actualiza la premisa de DEC-002 sobre el notebook. La diferencia que queda con `07_despliegue/01_reentrenamiento.py` es el escalado: el notebook usa Yeo-Johnson/Standard y producción todavía usa MinMax.
+**Conclusión:** Toda transformación de variables predictoras vive en un objeto scikit-learn persistido y se ajusta solo con datos de entrenamiento. Toda variable excluida se documenta con evidencia (AUC univariante o tasa de impago por nivel). Esta decisión actualiza la premisa de DEC-002 sobre el notebook. `07_despliegue/01_reentrenamiento.py` replica este preprocesador y la configuración de PD de DEC-008 desde el artefacto 1.2.0.
 
 ## DEC-007: Sin rebalanceo de clases para PD
 
@@ -93,3 +93,16 @@
 **Por qué la descartamos:** Escalar antes de partir deja que el test influya en la preparación (fuga de información). Sin semilla, el resultado no se puede reproducir. En la grilla anterior el mejor `C` caía en el borde. El AUC solo mide el ordenamiento, no si la probabilidad es correcta, y eso es lo que necesita la pérdida esperada.
 
 **Conclusión:** Resultado: Ridge (`l1_ratio=0`) con `C=0,01`. AUC 0,703 en validación cruzada, 0,705 en test interno y 0,705 en validación externa (35.592 préstamos con desenlace); Gini 0,41; KS 0,31; Brier 0,145 frente a 0,158 sin modelo; calibración dentro de ±2,6 p.p. por decil. Todo modelo nuevo se evalúa con métricas de ordenamiento y de calibración sobre `validacion.pkl`.
+
+
+## DEC-009: Validación externa del despliegue con los mismos filtros que el entrenamiento
+
+**Área:** despliegue | **Fase:** validación externa | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** `07_despliegue/03_validacion_externa.py` excluye de `validacion.pkl` los préstamos sin desenlace (`Current`, `In Grace Period`, `Late (16-30 days)`, `Late (31-120 days)`) y los `dti = 999`, igual que `01_reentrenamiento.py` y la fase de calidad.
+
+**Alternativa descartada:** Evaluar todas las filas con ingresos <= 400.000, como hacía el script.
+
+**Por qué la descartamos:** Un préstamo vigente todavía no pagó ni incumplió, así que contarlo como buen pagador inventa la etiqueta. Con esos préstamos incluidos se evaluaban 59.833 filas con una tasa de impago "real" de 11,7%, frente a una PD media predicha de 19,9%: el modelo parecía descalibrado y su AUC bajaba a 0,686. Con los mismos filtros quedan 35.592 préstamos, tasa real 19,7%, PD media 19,9% y AUC 0,706.
+
+**Conclusión:** Validación y entrenamiento comparten siempre la definición de población y de target. Si cambia un filtro de filas, cambia en los dos scripts.

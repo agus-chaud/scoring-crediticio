@@ -36,13 +36,13 @@ Construir un flujo reproducible de scoring crediticio que reciba 14 variables cr
 5. **Modelización** (`05`–`07`): PD con regresión logística; EAD y LGD con modelos de regresión entrenados solo sobre defaults.
 6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
 
-Modelos en producción: regresión logística con regularización L1 para PD; `HistGradientBoostingRegressor` para EAD y LGD. En el notebook 05, la mejor configuración de PD resultó Ridge (`l1_ratio=0`, `C=0,01`), con el mismo AUC que L1.
+Modelos en producción (artefacto 1.2.0): regresión logística Ridge (`l1_ratio=0`, `C=0,01`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD. El preprocesador de `01_reentrenamiento.py` replica el del notebook 04.
 
 ## Decisiones técnicas relevantes
 
 ### Un único preprocesador scikit-learn ([DEC-006](decisions.md))
 
-Los encoders se ajustaban uno por uno, no se guardaban y las categorías raras se reagrupaban con `replace` de pandas: validación y producción no podían repetir la preparación. Ahora un `ColumnTransformer` guardado con joblib agrupa las categorías con menos de 200 casos, codifica las desconocidas sin fallar y aplica Yeo-Johnson a las numéricas asimétricas (la asimetría de `ingresos` bajó de 2,19 a 0,13). Se usa `drop='first'` en One Hot porque, con k columnas, una se deduce de las demás y la regresión logística no tolera esa redundancia.
+Los encoders se ajustaban uno por uno, no se guardaban y las categorías raras se reagrupaban con `replace` de pandas: validación y producción no podían repetir la preparación. Ahora un `ColumnTransformer` guardado con joblib agrupa las categorías con menos de 200 casos, codifica las desconocidas sin fallar y aplica Yeo-Johnson a las numéricas asimétricas (la asimetría de `ingresos` bajó de 2,19 a 0,13). `01_reentrenamiento.py` usa la misma definición, así que las métricas de los notebooks describen el artefacto desplegado. Se usa `drop='first'` en One Hot porque, con k columnas, una se deduce de las demás y la regresión logística no tolera esa redundancia.
 
 ### Preprocesador ajustado dentro de la validación cruzada ([DEC-008](decisions.md))
 
@@ -50,7 +50,7 @@ Si el escalado se ajusta con todas las filas antes de partir los datos, el test 
 
 ### Métricas de ordenamiento y de calibración ([DEC-008](decisions.md))
 
-El AUC dice si el modelo ordena bien, no si la probabilidad es correcta, y la pérdida esperada multiplica la probabilidad. Por eso el modelo se evalúa con AUC/Gini/KS (ordenamiento) y con Brier y curva de calibración (exactitud de la probabilidad), sobre el test interno y sobre `validacion.pkl`.
+El AUC dice si el modelo ordena bien, no si la probabilidad es correcta, y la pérdida esperada multiplica la probabilidad. Por eso el modelo se evalúa con AUC/Gini/KS (ordenamiento) y con Brier y curva de calibración (exactitud de la probabilidad), sobre el test interno y sobre `validacion.pkl`. La validación del despliegue (`03_validacion_externa.py`) aplica los mismos filtros de filas que el entrenamiento ([DEC-009](decisions.md)).
 
 ### Sin rebalanceo de clases ([DEC-007](decisions.md))
 
@@ -72,7 +72,7 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 | Calibración PD | Brier 0,145 frente a 0,158 sin modelo; ±2,6 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
 | Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente a revisar al azar. |
 | Variables descartadas | `num_meses_desde_ult_retraso` y `num_cancelaciones_12meses`: AUC ≈ 0,50 | No aportan información y se excluyeron. |
-| Variables con señal fuera del modelo | `num_hipotecas`, `porc_tarjetas_75p` (AUC ≈ 0,55); `sector_empleo = desconocido`: 26,6% de impago | Candidatas para una próxima versión; hoy quedan fuera para no cambiar el contrato de 14 campos. |
+| Variables fuera del modelo | Solas tienen AUC ≈ 0,55, pero sumadas al modelo aportan +0,0001 a +0,0036 de AUC cada una y +0,0051 las cuatro juntas (ruido entre folds: ±0,005) | Casi toda su información ya está en las 14 variables; hoy quedan fuera para no cambiar el contrato de la API. |
 
 ## Funcionalidades entregadas
 
@@ -199,8 +199,7 @@ El dashboard usa por defecto `http://127.0.0.1:8000`. Para conectar una API desp
 
 ## Limitaciones y próximos pasos
 
-- **Notebooks y producción usan preparaciones distintas.** `07_despliegue/01_reentrenamiento.py` todavía escala con MinMax y reagrupa categorías con pandas; el notebook 04 usa Yeo-Johnson/Standard y agrupa dentro del encoder. Hasta alinearlos, las métricas de los notebooks no describen exactamente el artefacto desplegado.
-- **La validación externa del despliegue incluye préstamos sin desenlace.** `03_validacion_externa.py` evalúa 59.833 filas y cuenta los préstamos vigentes (`Current`, `Late…`) como buenos pagadores; con solo los préstamos con desenlace quedan 35.592. Su AUC (0,703) no es comparable con el del notebook 05.
+- **Variables candidatas sin incorporar.** `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion` y `sector_empleo` suman +0,0051 de AUC en validación cruzada. Incorporarlas cambia el contrato de la API de 14 a 18 campos; `sector_empleo` además necesita llevar a producción la clasificación por regex del título de empleo.
 - **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento. Si un mismo cliente tiene varios préstamos, la validación puede ser algo optimista.
 - **Sin umbral de decisión.** Falta cuantificar el costo de los falsos positivos y el beneficio de los verdaderos positivos para elegir un umbral que maximice el valor esperado.
