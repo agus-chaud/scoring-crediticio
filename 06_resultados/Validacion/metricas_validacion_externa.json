@@ -1,7 +1,7 @@
 {
-  "validation_rows": 59833,
+  "validation_rows": 35592,
   "default_rows": 7006,
-  "pd_roc_auc": 0.7025313550609595,
-  "ead_mae_on_defaults": 0.15360302257855393,
-  "lgd_mae_on_defaults": 0.08852223082926053
+  "pd_roc_auc": 0.705922389658351,
+  "ead_mae_on_defaults": 0.15423026453697353,
+  "lgd_mae_on_defaults": 0.08853987485870353
 }

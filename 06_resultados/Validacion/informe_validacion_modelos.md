@@ -1,13 +1,13 @@
 # Validación externa del artefacto de scoring
 
-La evaluación se ejecutó sobre `02_datos/02_Validacion/validacion.pkl`, separado antes del reentrenamiento.
+La evaluación se ejecutó sobre `02_datos/02_Validacion/validacion.pkl`, separado antes del reentrenamiento. Se aplican los mismos filtros de filas que en entrenamiento: solo préstamos con desenlace, ingresos <= 400.000 y dti distinto de 999.
 
 ## Resultados
 
-- Registros evaluados: 59833
+- Registros evaluados: 35592
 - Casos de incumplimiento: 7006
-- PD ROC-AUC: 0.7025
-- EAD MAE, solo incumplimientos: 0.1536
+- PD ROC-AUC: 0.7059
+- EAD MAE, solo incumplimientos: 0.1542
 - LGD MAE, solo incumplimientos: 0.0885
 
 ## Interpretación

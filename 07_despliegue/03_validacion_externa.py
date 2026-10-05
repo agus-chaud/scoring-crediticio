@@ -17,9 +17,15 @@ DEFAULT_STATUSES = {
     "Does not meet the credit policy. Status:Charged Off",
     "Default",
 }
+# Same row filters as training (01_reentrenamiento.py): loans without a final outcome
+# cannot be labelled as good or bad payers, and dti 999 is the "no data" code.
+UNRESOLVED_STATUSES = {"Current", "In Grace Period", "Late (16-30 days)", "Late (31-120 days)"}
+DTI_MISSING_CODE = 999
 
 validation = pd.read_pickle(VALIDATION_PATH)
-validation = validation.loc[validation["ingresos"].fillna(0) <= 400000].copy()
+validation = validation.loc[validation["ingresos"].fillna(0) <= 400000]
+validation = validation.loc[validation["dti"] != DTI_MISSING_CODE]
+validation = validation.loc[~validation["estado"].isin(UNRESOLVED_STATUSES)].copy()
 validation["target_pd"] = validation["estado"].isin(DEFAULT_STATUSES).astype(int)
 pending = validation["principal"] - validation["imp_amortizado"]
 validation["target_ead"] = (pending / validation["principal"]).replace([np.inf, -np.inf], np.nan).fillna(0).clip(0, 1)
@@ -39,7 +45,8 @@ RESULT_DIR.mkdir(parents=True, exist_ok=True)
 (RESULT_DIR / "metricas_validacion_externa.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 (RESULT_DIR / "informe_validacion_modelos.md").write_text(
     "# Validación externa del artefacto de scoring\n\n"
-    "La evaluación se ejecutó sobre `02_datos/02_Validacion/validacion.pkl`, separado antes del reentrenamiento.\n\n"
+    "La evaluación se ejecutó sobre `02_datos/02_Validacion/validacion.pkl`, separado antes del reentrenamiento. "
+    "Se aplican los mismos filtros de filas que en entrenamiento: solo préstamos con desenlace, ingresos <= 400.000 y dti distinto de 999.\n\n"
     "## Resultados\n\n"
     f"- Registros evaluados: {metrics['validation_rows']}\n"
     f"- Casos de incumplimiento: {metrics['default_rows']}\n"
