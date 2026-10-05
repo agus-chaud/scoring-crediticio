@@ -27,7 +27,9 @@ def predict(records: list[RegistroEntrada]) -> list[dict]:
 def debug() -> dict:
     try:
         payload = json.loads((BASE_DIR / "test_payload.json").read_text(encoding="utf-8-sig"))
-        result = scoring_df(pd.DataFrame(payload))
+        # Validate through the same schema as /predict so dtypes match the training data.
+        records = [RegistroEntrada.model_validate(record) for record in payload]
+        result = scoring_df(pd.DataFrame([record.model_dump(by_alias=True) for record in records]))
         return {
             "python_version": platform.python_version(),
             "status": "OK",
