@@ -42,7 +42,8 @@ scoring crediticio.zip
 /.agents/skills/
 /.claude/skills/
 Microsoft/Windows/PowerShell/ModuleAnalysisCache
-07_despliegue/03_app/media/score.jpg
-07_despliegue/03_app/media/DS4B_favicon.png
 .atl/
-07_despliegue/03_app/01_Creacion de una aplicacion con Streamlit.ipynb
+
+# Ejercicios del curso (otro dataset: UCI Bank Marketing), no forman parte del proyecto
+07_despliegue/02_api/
+07_despliegue/03_app/
