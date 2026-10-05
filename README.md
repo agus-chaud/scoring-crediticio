@@ -18,6 +18,7 @@ Tenele paciencia que cargue :)
 - La probabilidad está **calibrada**: la PD media predicha es **19,8%** frente a una tasa real de **19,7%**, y en cada decil la diferencia es de **±3,0 p.p.** como máximo. Se puede usar tal cual en la pérdida esperada.
 - Revisando el **20%** de clientes con mayor PD se encuentra el **39%** de los impagos.
 - El sector de empleo es la única variable fuera del contrato original que mejora el modelo: **+0,0036 de AUC**. Los clientes sin título de empleo tienen **26,6%** de impago, frente a 14–25% en el resto.
+- EAD y LGD apenas superan a predecir siempre la mediana: MAE **0,159 frente a 0,177** en EAD (−9,8%) y **0,087 frente a 0,088** en LGD (−0,6%). El modelo de LGD asigna casi la misma pérdida (0,88–0,92) a todos los préstamos.
 - `rating` y `tipo_interes` tienen correlación **0,95**: aportan casi la misma información, y con el escalado anterior el coeficiente de `tipo_interes` salía con el signo cambiado.
 
 ## Problema
@@ -57,6 +58,10 @@ El AUC dice si el modelo ordena bien, no si la probabilidad es correcta, y la p�
 
 De las cuatro variables con señal que quedaban fuera, solo `sector_empleo` mejora el modelo de forma apreciable en validación cruzada (+0,0036 de AUC; las otras tres, entre +0,0001 y +0,0007). La API recibe el título de empleo crudo (`empleo`, obligatorio pero admite `null`) y el pipeline lo convierte en sector con `04_scripts/sector_empleo.py`, la misma regla de la fase de calidad. El código del módulo viaja embebido en el artefacto (`cloudpickle.register_pickle_by_value`), así que la API no depende de `04_scripts`. Un cliente que siga mandando los 14 campos viejos recibe un error 422 explícito en lugar de quedar clasificado en silencio como `desconocido`, el sector de mayor riesgo.
 
+### EAD y LGD comparados con un baseline ([DEC-011](decisions.md))
+
+Los notebooks 06 y 07 reentrenaban el modelo final con hiperparámetros escritos a mano distintos del ganador de la búsqueda, partían sin semilla y no tenían referencia. Ahora usan `best_estimator_`, `random_state=42`, el preprocesador clonado dentro del `Pipeline` (como PD) y comparan el MAE con `DummyRegressor(strategy='median')`. Esa comparación mostró que el modelo de LGD casi no aprende.
+
 ### Sin rebalanceo de clases ([DEC-007](decisions.md))
 
 La tasa de impago es 19,9% (16.568 casos): no hay escasez de positivos. Remuestrear desplazaría la PD hacia arriba y obligaría a recalibrarla antes de calcular la pérdida esperada.
@@ -76,6 +81,8 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 | Ordenamiento PD | AUC 0,708 · Gini 0,42 · KS 0,31 en validación externa | Separa buenos y malos pagadores claramente mejor que el azar; el resultado es estable entre CV, test y validación externa. |
 | Calibración PD | Brier 0,144 frente a 0,158 sin modelo; ±3,0 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
 | Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente a revisar al azar. |
+| EAD | MAE 0,159 frente a 0,177 de la mediana (validación interna) | Mejora un 9,8%; las predicciones van de 0,55 a 0,95 y sobrestiman los EAD bajos. |
+| LGD | MAE 0,087 frente a 0,088 de la mediana (validación interna) | Mejora un 0,6%: con las variables actuales el modelo no distingue préstamos. |
 | Variables descartadas | `num_meses_desde_ult_retraso` y `num_cancelaciones_12meses`: AUC ≈ 0,50 | No aportan información y se excluyeron. |
 | Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como título de empleo crudo. |
 | Variables descartadas con señal | `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`: AUC ≈ 0,55 solas, +0,0001 a +0,0007 dentro del modelo | Su información ya está en las otras variables; no justifican ampliar el contrato. |
@@ -169,9 +176,9 @@ python -m pip install -r 07_despliegue\app\requirements.txt
 python 07_despliegue\01_reentrenamiento.py
 ```
 
-### Notebooks de transformación y modelización PD
+### Notebooks de transformación y modelización
 
-No hay un archivo de dependencias para los notebooks: se instalan aparte. El notebook 04 genera `preprocesador.joblib` y los tablones; el 05 los necesita, así que el orden importa. Las rutas son relativas a `Notebooks/` y los nombres de archivo tienen espacios.
+No hay un archivo de dependencias para los notebooks: se instalan aparte. El notebook 04 genera `preprocesador.joblib` y los tablones; el 05, 06 y 07 los necesitan, así que el orden importa. El 06 y el 07 tardan unos 10 minutos cada uno. Las rutas son relativas a `Notebooks/` y los nombres de archivo tienen espacios.
 
 ```powershell
 python -m pip install jupyter matplotlib seaborn python-dotenv
@@ -179,6 +186,8 @@ python -m pip install jupyter matplotlib seaborn python-dotenv
 cd Notebooks
 ..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "04_Transformacion de datos.ipynb"
 ..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "05_Modelizacion Clasificacion PD.ipynb"
+..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "06_Modelizacion Regresion EAD.ipynb"
+..\.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace "07_Modelizacion Regresion LGD.ipynb"
 ```
 
 ### API y dashboard
@@ -211,6 +220,8 @@ El dashboard usa por defecto `http://127.0.0.1:8000`. Para conectar una API desp
 - **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros` porque su título no coincide con ningún sector. La app de demostración envía siempre "Office Manager" (`administrativo`, 19,6% de impago, la tasa más cercana al promedio) como campo oculto.
 - **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento. Si un mismo cliente tiene varios préstamos, la validación puede ser algo optimista.
+- **LGD sin poder predictivo.** El modelo mejora un 0,6% sobre la mediana. Falta probar otras variables o un enfoque en dos etapas (clasificar si la LGD es 1 y luego hacer una regresión para el resto).
+- **Producción desalineada en EAD y LGD.** `01_reentrenamiento.py` y `08_Preproduccion.ipynb` no incorporan las correcciones de [DEC-011](decisions.md).
 - **Sin umbral de decisión.** Falta cuantificar el costo de los falsos positivos y el beneficio de los verdaderos positivos para elegir un umbral que maximice el valor esperado.
 
 ## Notas de seguridad y uso responsable

@@ -119,3 +119,17 @@
 **Por qué la descartamos:** En validación cruzada (Ridge, 5 folds, ruido ±0,005), las tres variables aportan +0,0005, +0,0001 y +0,0007 de AUC: no compensan el costo de ampliar el contrato. `sector_empleo` aporta +0,0036 y captura un grupo de riesgo claro (sin título de empleo: 26,6% de impago). Que el campo sea obligatorio evita que un cliente viejo quede clasificado en silencio como `desconocido`: recibe un 422.
 
 **Conclusión:** Resultado: mejor configuración Ridge con `C≈0,316`. AUC 0,707 en validación cruzada y 0,708 en `validacion.pkl` en el notebook; 0,709 en la validación del artefacto. Una variable entra al contrato de la API solo si su aporte dentro del modelo supera el ruido entre folds, no solo por su señal univariante. Toda regla de derivación usada en producción vive en un único módulo compartido por notebooks y reentrenamiento.
+
+
+## DEC-011: Modelización EAD y LGD con el ganador del grid, baseline y preprocesador dentro de la validación cruzada
+
+**Área:** modelado | **Fase:** A_06/A_07 Modelización EAD y LGD | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** `06_Modelizacion Regresion EAD.ipynb` y `07_Modelizacion Regresion LGD.ipynb` leen tablones sin transformar (`df_tablon_ead_sin_transformar.pkl`, `df_tablon_lgd_sin_transformar.pkl`, exportados por el notebook 04) y clonan `preprocesador.joblib` dentro del `Pipeline`. Partición con `random_state=42` y `KFold(5, shuffle=True)`. Ridge y Lasso llevan `StandardScaler` y `alpha = logspace(-3, 2, 11)`; `HistGradientBoostingRegressor` usa `loss='absolute_error'` sin `scoring` MAPE. El modelo final es `best_estimator_` y se compara con `DummyRegressor(strategy='median')`. Los residuos se grafican contra el valor predicho.
+
+**Alternativa descartada:** Tablones ya transformados, partición sin semilla, `cv=3` sin mezclar, `alpha` lineal entre 0,1 y 1, HGB con parada temprana por MAPE y un modelo final reentrenado con hiperparámetros escritos a mano distintos del ganador.
+
+**Por qué la descartamos:** El modelo evaluado no era el ganador de la búsqueda, y sin semilla cada ejecución daba otro resultado. El preprocesador ajustado con todo el train filtraba estadísticos a la validación interna. El MAPE explota con EAD cercanos a 0 y no coincidía con el MAE de la búsqueda. Sin baseline, un MAE de 0,09 en LGD parecía bueno. Graficar residuos contra el valor real muestra siempre una pendiente positiva, aunque el modelo no tenga sesgo.
+
+**Conclusión:** Resultado: EAD, HGB (lr 0,05, depth 10, 200 iteraciones, l2 0,25), MAE 0,154 en CV y 0,159 en validación interna frente a 0,177 de la mediana (−9,8%). LGD, HGB (lr 0,01, depth 5, 200 iteraciones, l2 0,75), MAE 0,089 en CV y 0,087 frente a 0,088 de la mediana (−0,6%): el modelo de LGD prácticamente no aprende, predice entre 0,88 y 0,92 para todos. Todo modelo de regresión se reporta junto a un baseline trivial. El artefacto de producción (`01_reentrenamiento.py`) todavía no incorpora estos cambios.
+

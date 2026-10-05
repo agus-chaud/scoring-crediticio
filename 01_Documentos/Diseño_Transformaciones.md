@@ -38,6 +38,7 @@
 - [DEC-006](../decisions.md#dec-006-preparación-de-variables-en-un-único-preprocesador-scikit-learn): estrategia de transformación (este documento).
 - [DEC-007](../decisions.md#dec-007-sin-rebalanceo-de-clases-para-pd): sin rebalanceo de clases.
 - [DEC-008](../decisions.md#dec-008-modelización-pd-con-preprocesador-dentro-de-la-validación-cruzada-y-validación-externa): el preprocesador se clona y ajusta dentro de la validación cruzada del modelo PD.
+- [DEC-011](../decisions.md#dec-011-modelización-ead-y-lgd-con-el-ganador-del-grid-baseline-y-preprocesador-dentro-de-la-validación-cruzada): EAD y LGD también clonan el preprocesador dentro de la validación cruzada, a partir de tablones sin transformar.
 - [DEC-010](../decisions.md#dec-010-sector-de-empleo-en-el-modelo-y-en-el-contrato-de-la-api): `sector_empleo` entra al modelo; la API recibe el título de empleo crudo (15 campos).
 
 ## Salidas
@@ -48,12 +49,13 @@
 | `02_datos/03_Entrenamiento/df_tablon_pd_sin_transformar.pkl` | 15 variables (14 crudas + `sector_empleo`) + `target_pd`, índice `id_cliente`. Entrada del notebook 05. |
 | `02_datos/03_Entrenamiento/df_tablon_pd.pkl` | 40 columnas transformadas + `target_pd` (83.250 filas). |
 | `02_datos/03_Entrenamiento/df_tablon_ead.pkl`, `df_tablon_lgd.pkl` | 40 columnas transformadas + target, solo defaults (16.568 filas). |
+| `02_datos/03_Entrenamiento/df_tablon_ead_sin_transformar.pkl`, `df_tablon_lgd_sin_transformar.pkl` | 15 variables crudas + target, solo defaults (16.568 filas), mismo índice que los transformados. Entrada de los notebooks 06 y 07. |
 
 ## Validaciones realizadas
 
 Filas preservadas, target alineada por `id_cliente`, sin variables originales ni intermedias en la salida, sin nulos,
 sin columnas duplicadas, sin multicolinealidad perfecta entre binarias y una fila con categorías inventadas
-transformada sin error. El preprocesador recargado desde joblib reproduce el tablón exactamente.
+transformada sin error. El preprocesador recargado desde joblib reproduce el tablón exactamente. Los tablones EAD y LGD crudos y transformados comparten índice y target.
 
 ## Riesgos identificados
 
