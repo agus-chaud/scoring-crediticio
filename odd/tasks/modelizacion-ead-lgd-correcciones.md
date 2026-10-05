@@ -33,8 +33,8 @@ end to end with `.venv` nbconvert; asserts inside the notebook where useful.
 ## Tasks
 - [x] T1 — 04: export raw (untransformed) EAD and LGD tablones, defaults only, same index and targets.
   Route: delegated (writer trigger: 3 non-trivial notebooks).
-- [ ] T2 — 06 EAD: fixes 1-6, execute, rewrite readings from real output. Route: delegated.
-- [ ] T3 — 07 LGD: fixes 1-6, execute, rewrite readings from real output. Route: delegated.
+- [x] T2 — 06 EAD: fixes 1-6, execute, rewrite readings from real output. Route: delegated.
+- [x] T3 — 07 LGD: fixes 1-6, execute, rewrite readings from real output. Route: delegated.
 
 ## Acceptance criteria
 - 04, 06, 07 execute end to end without errors.
@@ -55,5 +55,17 @@ end to end with `.venv` nbconvert; asserts inside the notebook where useful.
   `02_datos/03_Entrenamiento/`. None of the pkls under `02_datos/` are git-tracked, so only the notebook is
   committed.
 
+- T1 commit: `cdafa9b`.
+- T2 done. `06` executed end to end with `.venv` nbconvert (exit 0, no error outputs; the joblib
+  `resource_tracker` KeyError in stderr is Windows temp-folder cleanup after completion). Winner HGB
+  (`loss='absolute_error'`, lr 0.05, depth 10, 200 iter, l2 0.25), MAE CV 0.154 ± 0.002; internal validation
+  MAE 0.159 vs median baseline 0.177 (-9.8%). Residual vs predicted: no slope (corr 0.03), dispersion drops
+  from 0.23 to 0.16 across prediction terciles; predictions span only 0.55-0.95.
+- T3 done. `07` executed end to end (same check). Winner HGB (lr 0.01, depth 5, 200 iter, l2 0.75),
+  MAE CV 0.089 ± 0.003; internal validation MAE 0.087 vs median baseline 0.088 (-0.6%): the model barely
+  beats the baseline. Predictions span 0.88-0.92 (p5-p95) vs real 0.57-1.00.
+- Route evidence: T2/T3 code written by the delegated writer; executions and readings finished by the parent
+  after the writer's background runs died with its session.
+
 ## Next step
-T2 — notebook 06 (EAD).
+Done. Follow-up (not authorized yet): LGD needs better features or a two-stage approach; yellow review items.
