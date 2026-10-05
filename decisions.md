@@ -106,3 +106,16 @@
 **Por qué la descartamos:** Un préstamo vigente todavía no pagó ni incumplió, así que contarlo como buen pagador inventa la etiqueta. Con esos préstamos incluidos se evaluaban 59.833 filas con una tasa de impago "real" de 11,7%, frente a una PD media predicha de 19,9%: el modelo parecía descalibrado y su AUC bajaba a 0,686. Con los mismos filtros quedan 35.592 préstamos, tasa real 19,7%, PD media 19,9% y AUC 0,706.
 
 **Conclusión:** Validación y entrenamiento comparten siempre la definición de población y de target. Si cambia un filtro de filas, cambia en los dos scripts.
+
+
+## DEC-010: Sector de empleo en el modelo y en el contrato de la API
+
+**Área:** modelado | **Fase:** A_05 Modelización PD / despliegue | **Fecha:** 2026-10-05 | **Estado:** Vigente
+
+**Decisión:** `sector_empleo` entra al preprocesador como One Hot. La API agrega el campo `empleo` (título de empleo crudo, obligatorio, admite `null`) y el pipeline lo convierte en sector con `04_scripts/sector_empleo.py`, copia exacta de la regla de `02_Calidad de Datos` (verificada sobre las 83.250 filas de entrenamiento). El módulo se embebe en el artefacto 1.3.0 con `cloudpickle.register_pickle_by_value`. La app envía "Office Manager" como campo oculto. El contrato pasa de los 14 campos de DEC-001 y DEC-005 a 15.
+
+**Alternativa descartada:** Agregar también `num_hipotecas`, `porc_tarjetas_75p` y `tiene_descripcion` (18 campos), o no cambiar el contrato.
+
+**Por qué la descartamos:** En validación cruzada (Ridge, 5 folds, ruido ±0,005), las tres variables aportan +0,0005, +0,0001 y +0,0007 de AUC: no compensan el costo de ampliar el contrato. `sector_empleo` aporta +0,0036 y captura un grupo de riesgo claro (sin título de empleo: 26,6% de impago). Que el campo sea obligatorio evita que un cliente viejo quede clasificado en silencio como `desconocido`: recibe un 422.
+
+**Conclusión:** Resultado: mejor configuración Ridge con `C≈0,316`. AUC 0,707 en validación cruzada y 0,708 en `validacion.pkl` en el notebook; 0,709 en la validación del artefacto. Una variable entra al contrato de la API solo si su aporte dentro del modelo supera el ruido entre folds, no solo por su señal univariante. Toda regla de derivación usada en producción vive en un único módulo compartido por notebooks y reentrenamiento.

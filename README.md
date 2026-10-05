@@ -14,9 +14,10 @@ Tenele paciencia que cargue :)
 
 ## Hallazgos clave
 
-- El modelo de PD ordena el riesgo con **AUC 0,705 (Gini 0,41)** sobre 35.592 préstamos de validación externa que no se usaron para entrenar. El valor coincide con la validación cruzada (0,703): no hay sobreajuste.
-- La probabilidad está **calibrada**: la PD media predicha es **19,8%** frente a una tasa real de **19,7%**, y en cada decil la diferencia es de **±2,6 p.p.** como máximo. Se puede usar tal cual en la pérdida esperada.
+- El modelo de PD ordena el riesgo con **AUC 0,708 (Gini 0,42)** sobre 35.592 préstamos de validación externa que no se usaron para entrenar. El valor coincide con la validación cruzada (0,707): no hay sobreajuste.
+- La probabilidad está **calibrada**: la PD media predicha es **19,8%** frente a una tasa real de **19,7%**, y en cada decil la diferencia es de **±3,0 p.p.** como máximo. Se puede usar tal cual en la pérdida esperada.
 - Revisando el **20%** de clientes con mayor PD se encuentra el **39%** de los impagos.
+- El sector de empleo es la única variable fuera del contrato original que mejora el modelo: **+0,0036 de AUC**. Los clientes sin título de empleo tienen **26,6%** de impago, frente a 14–25% en el resto.
 - `rating` y `tipo_interes` tienen correlación **0,95**: aportan casi la misma información, y con el escalado anterior el coeficiente de `tipo_interes` salía con el signo cambiado.
 
 ## Problema
@@ -25,7 +26,7 @@ Evaluar el riesgo de una cartera de préstamos requiere combinar la probabilidad
 
 ## Objetivo
 
-Construir un flujo reproducible de scoring crediticio que reciba 14 variables crudas de un préstamo, calcule PD, EAD, LGD y pérdida esperada relativa, y exponga el resultado mediante API y dashboard.
+Construir un flujo reproducible de scoring crediticio que reciba 15 variables crudas de un préstamo, calcule PD, EAD, LGD y pérdida esperada relativa, y exponga el resultado mediante API y dashboard.
 
 ## Enfoque técnico
 
@@ -36,7 +37,7 @@ Construir un flujo reproducible de scoring crediticio que reciba 14 variables cr
 5. **Modelización** (`05`–`07`): PD con regresión logística; EAD y LGD con modelos de regresión entrenados solo sobre defaults.
 6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
 
-Modelos en producción (artefacto 1.2.0): regresión logística Ridge (`l1_ratio=0`, `C=0,01`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD. El preprocesador de `01_reentrenamiento.py` replica el del notebook 04.
+Modelos en producción (artefacto 1.3.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD. El preprocesador de `01_reentrenamiento.py` replica el del notebook 04.
 
 ## Decisiones técnicas relevantes
 
@@ -51,6 +52,10 @@ Si el escalado se ajusta con todas las filas antes de partir los datos, el test 
 ### Métricas de ordenamiento y de calibración ([DEC-008](decisions.md))
 
 El AUC dice si el modelo ordena bien, no si la probabilidad es correcta, y la pérdida esperada multiplica la probabilidad. Por eso el modelo se evalúa con AUC/Gini/KS (ordenamiento) y con Brier y curva de calibración (exactitud de la probabilidad), sobre el test interno y sobre `validacion.pkl`. La validación del despliegue (`03_validacion_externa.py`) aplica los mismos filtros de filas que el entrenamiento ([DEC-009](decisions.md)).
+
+### Sector de empleo en el contrato de la API ([DEC-010](decisions.md))
+
+De las cuatro variables con señal que quedaban fuera, solo `sector_empleo` mejora el modelo de forma apreciable en validación cruzada (+0,0036 de AUC; las otras tres, entre +0,0001 y +0,0007). La API recibe el título de empleo crudo (`empleo`, obligatorio pero admite `null`) y el pipeline lo convierte en sector con `04_scripts/sector_empleo.py`, la misma regla de la fase de calidad. El código del módulo viaja embebido en el artefacto (`cloudpickle.register_pickle_by_value`), así que la API no depende de `04_scripts`. Un cliente que siga mandando los 14 campos viejos recibe un error 422 explícito en lugar de quedar clasificado en silencio como `desconocido`, el sector de mayor riesgo.
 
 ### Sin rebalanceo de clases ([DEC-007](decisions.md))
 
@@ -68,11 +73,12 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 
 | Área analizada | Hallazgo | Interpretación |
 |---|---|---|
-| Ordenamiento PD | AUC 0,705 · Gini 0,41 · KS 0,31 en validación externa | Separa buenos y malos pagadores claramente mejor que el azar; el resultado es estable entre CV, test y validación externa. |
-| Calibración PD | Brier 0,145 frente a 0,158 sin modelo; ±2,6 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
+| Ordenamiento PD | AUC 0,708 · Gini 0,42 · KS 0,31 en validación externa | Separa buenos y malos pagadores claramente mejor que el azar; el resultado es estable entre CV, test y validación externa. |
+| Calibración PD | Brier 0,144 frente a 0,158 sin modelo; ±3,0 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
 | Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente a revisar al azar. |
 | Variables descartadas | `num_meses_desde_ult_retraso` y `num_cancelaciones_12meses`: AUC ≈ 0,50 | No aportan información y se excluyeron. |
-| Variables fuera del modelo | Solas tienen AUC ≈ 0,55, pero sumadas al modelo aportan +0,0001 a +0,0036 de AUC cada una y +0,0051 las cuatro juntas (ruido entre folds: ±0,005) | Casi toda su información ya está en las 14 variables; hoy quedan fuera para no cambiar el contrato de la API. |
+| Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como título de empleo crudo. |
+| Variables descartadas con señal | `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`: AUC ≈ 0,55 solas, +0,0001 a +0,0007 dentro del modelo | Su información ya está en las otras variables; no justifican ampliar el contrato. |
 
 ## Funcionalidades entregadas
 
@@ -94,6 +100,8 @@ AA_scoring-crediticio/
 │   ├── 01_Originales/prestamos.csv       # Datos fuente de préstamos
 │   ├── 02_Validacion/validacion.pkl      # Validación externa, separada antes de entrenar
 │   └── 03_Entrenamiento/                 # train.pkl y tablones derivados (calidad, EDA, PD, EAD, LGD)
+├── 04_scripts/
+│   └── sector_empleo.py                  # Título de empleo → sector (misma regla que Calidad)
 ├── 05_modelos/
 │   └── preprocesador.joblib              # ColumnTransformer generado por el notebook 04
 ├── Notebooks/
@@ -138,8 +146,9 @@ AA_scoring-crediticio/
 ## Datos y artefactos
 
 - **Origen:** `02_datos/01_Originales/prestamos.csv` y tablas derivadas en `02_datos/03_Entrenamiento/`.
-- **Variables de entrada:** `ingresos_verificados`, `vivienda`, `finalidad`, `num_cuotas`, `antigüedad_empleo`, `rating`, `ingresos`, `dti`, `num_lineas_credito`, `porc_uso_revolving`, `principal`, `tipo_interes`, `imp_cuota` y `num_derogatorios`.
-- **Preprocesador de los notebooks:** `05_modelos/preprocesador.joblib` (14 variables crudas → 27 columnas).
+- **Variables de entrada:** `ingresos_verificados`, `vivienda`, `finalidad`, `num_cuotas`, `antigüedad_empleo`, `rating`, `ingresos`, `dti`, `num_lineas_credito`, `porc_uso_revolving`, `principal`, `tipo_interes`, `imp_cuota`, `num_derogatorios` y `empleo` (título de empleo crudo; `null` si no se conoce).
+- **Preprocesador de los notebooks:** `05_modelos/preprocesador.joblib` (15 variables → 40 columnas; en los notebooks entra `sector_empleo` ya calculado).
+- **Clasificación de empleo:** `04_scripts/sector_empleo.py`, compartido por los notebooks y el reentrenamiento.
 - **Artefacto de producción:** `07_despliegue/artefacto_pipeline.pkl`, con los tres pipelines y sus métricas de evaluación.
 - **Salidas:** `score_pd`, `score_ead`, `score_lgd` y `perdida_esperada_relativa`.
 
@@ -199,7 +208,7 @@ El dashboard usa por defecto `http://127.0.0.1:8000`. Para conectar una API desp
 
 ## Limitaciones y próximos pasos
 
-- **Variables candidatas sin incorporar.** `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion` y `sector_empleo` suman +0,0051 de AUC en validación cruzada. Incorporarlas cambia el contrato de la API de 14 a 18 campos; `sector_empleo` además necesita llevar a producción la clasificación por regex del título de empleo.
+- **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros` porque su título no coincide con ningún sector. La app de demostración envía siempre "Office Manager" (`administrativo`, 19,6% de impago, la tasa más cercana al promedio) como campo oculto.
 - **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento. Si un mismo cliente tiene varios préstamos, la validación puede ser algo optimista.
 - **Sin umbral de decisión.** Falta cuantificar el costo de los falsos positivos y el beneficio de los verdaderos positivos para elegir un umbral que maximice el valor esperado.

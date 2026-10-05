@@ -61,7 +61,11 @@ Strategy: ask-on-risk. Commits per task on `feat/preprocesador-y-modelizacion-pd
   (old artefact on same rows 0.7045; with unresolved loans 0.686 and real rate 11.7% vs PD 19.9%).
 - [x] T6 — Evaluate candidate variables (5-fold CV, Ridge C=0.01): base 0.7041 ± 0.0052; +num_hipotecas 0.7046;
   +porc_tarjetas_75p 0.7042; +tiene_descripcion 0.7048; +sector_empleo 0.7077; all four 0.7092.
-- [ ] T7 — Decide whether to add candidates to the API contract (14 → 18 fields). Waiting on the user.
+- [x] T7 — User chose `sector_empleo` only (DEC-010). Shared module `04_scripts/sector_empleo.py` (matches Calidad on
+  83,250 rows); notebooks 04/05 re-executed (commit `5fb375f`): best Ridge C≈0.316, AUC CV 0.707 · external 0.708.
+  Production (commit `5a3d8e8`): API field `empleo` (required, nullable), artefact 1.3.0 with the module embedded by value.
+  Evidence: API loads without `04_scripts` importable; `/predict` 200 full payload, 200 with `empleo: null`
+  (PD 10.4% → 15.5%), 422 on the old 14-field payload; `/debug` OK; validation AUC 0.7087 on 35,592 rows; app tests OK.
 
 ## Next step
-User decision on T7; push/PR are the user's decision.
+Push/PR are the user's decision. Pushing redeploys the API on Render with the 15-field contract.

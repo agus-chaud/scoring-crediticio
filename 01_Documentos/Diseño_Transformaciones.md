@@ -28,7 +28,7 @@
 | num_hipotecas | num_discreta | — | — | — | — | — | — | NO | — | AUC univariante 0,547, pero sumada al modelo aporta +0,0005 de AUC en CV (ruido ±0,005). |
 | porc_tarjetas_75p | num_continua | — | — | — | — | — | — | NO | — | AUC univariante 0,552; sumada al modelo, +0,0001. |
 | tiene_descripcion | binaria | — | — | — | — | — | — | NO | — | Impago 15,7% con descripción vs 20,3% sin ella; sumada al modelo, +0,0007. |
-| sector_empleo | cat_nominal | — | — | — | — | — | — | NO | — | Impago 26,6% en `desconocido` vs 14–25% en el resto; sumada al modelo, +0,0036. Las 4 juntas: +0,0051. Requiere la clasificación por regex del título de empleo en producción. |
+| sector_empleo | cat_nominal | OHE(drop='first', min_frequency=200) | binaria | — | — | NO | SÍ | SÍ | `ohe__sector_empleo_*` | 14 sectores, referencia `administrativo`. Impago 26,6% en `desconocido` vs 14–25% en el resto; +0,0036 de AUC en CV. En producción se deriva del título crudo `empleo` con `04_scripts/sector_empleo.py` (DEC-010). |
 | imp_amortizado, imp_recuperado, estado | — | — | — | — | — | — | — | NO | — | Se conocen después del desenlace del préstamo: fuga de información. Solo se usan para construir las targets. |
 | id_cliente | — | — | — | — | — | — | — | NO (índice) | — | Identificador. |
 | target_pd / target_ead / target_lgd | target | — | — | — | — | NO | SÍ | SÍ | igual | La target se incluye sin transformar. |
@@ -38,16 +38,16 @@
 - [DEC-006](../decisions.md#dec-006-preparación-de-variables-en-un-único-preprocesador-scikit-learn): estrategia de transformación (este documento).
 - [DEC-007](../decisions.md#dec-007-sin-rebalanceo-de-clases-para-pd): sin rebalanceo de clases.
 - [DEC-008](../decisions.md#dec-008-modelización-pd-con-preprocesador-dentro-de-la-validación-cruzada-y-validación-externa): el preprocesador se clona y ajusta dentro de la validación cruzada del modelo PD.
-- Se mantiene el contrato de 14 variables crudas de la API ([DEC-001](../decisions.md)).
+- [DEC-010](../decisions.md#dec-010-sector-de-empleo-en-el-modelo-y-en-el-contrato-de-la-api): `sector_empleo` entra al modelo; la API recibe el título de empleo crudo (15 campos).
 
 ## Salidas
 
 | Archivo | Contenido |
 |---|---|
 | `05_modelos/preprocesador.joblib` | `ColumnTransformer` ajustado sobre las 83.250 filas de entrenamiento. |
-| `02_datos/03_Entrenamiento/df_tablon_pd_sin_transformar.pkl` | 14 variables crudas + `target_pd`, índice `id_cliente`. Entrada del notebook 05. |
-| `02_datos/03_Entrenamiento/df_tablon_pd.pkl` | 27 columnas transformadas + `target_pd` (83.250 filas). |
-| `02_datos/03_Entrenamiento/df_tablon_ead.pkl`, `df_tablon_lgd.pkl` | 27 columnas transformadas + target, solo defaults (16.568 filas). |
+| `02_datos/03_Entrenamiento/df_tablon_pd_sin_transformar.pkl` | 15 variables (14 crudas + `sector_empleo`) + `target_pd`, índice `id_cliente`. Entrada del notebook 05. |
+| `02_datos/03_Entrenamiento/df_tablon_pd.pkl` | 40 columnas transformadas + `target_pd` (83.250 filas). |
+| `02_datos/03_Entrenamiento/df_tablon_ead.pkl`, `df_tablon_lgd.pkl` | 40 columnas transformadas + target, solo defaults (16.568 filas). |
 
 ## Validaciones realizadas
 
@@ -59,4 +59,4 @@ transformada sin error. El preprocesador recargado desde joblib reproduce el tab
 
 - **Colinealidad:** en el tablón transformado, `oe__rating` vs `ss__tipo_interes` tienen correlación 0,95 y `yj__principal` vs `yj__imp_cuota`, 0,97. Con Ridge, los coeficientes de `rating` y `tipo_interes` salen los dos positivos (con el diseño anterior, `tipo_interes` salía negativo), pero aportan casi la misma información: la fase de selección de variables debería quedarse con una de cada par.
 - **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): son pocos casos, conviene revisarlos en calidad.
-- **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0. Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.
+- **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0 (con `sector_empleo` desde el 1.3.0). Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.
