@@ -23,7 +23,7 @@ The UI defaults to `http://127.0.0.1:8000`. Set `API_BASE_URL` for a deployed AP
 ## What the app does
 
 - Analytical dashboard layout: a narrow left filter panel (25%) and a right results area (blue result card, horizontal impact bar, gauge, secondary metrics).
-- Exposes 8 editable filters (`principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving`, `rating`). The other 6 required contract fields live in `idea/design_spec.json` under `hidden_fields` with their `test_payload.json` values and are merged into every request by `compose_payload_values` (see DEC-005 in `decisions.md`).
+- Exposes 9 editable filters (`principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving`, `rating`, `sector_empleo`). The other 6 required contract fields live in `idea/design_spec.json` under `hidden_fields` with their `test_payload.json` values and are merged into every request by `compose_payload_values` (see DEC-005 in `decisions.md`).
 - Sends exactly one editable raw record as `[record]` to `POST /predict` after the form submit action.
 - Shows only `score_pd`, `score_ead`, `score_lgd`, and `perdida_esperada_relativa`, plus the explanatory `PD × EAD × LGD` text. `perdida_esperada_relativa` is rendered as a percentage on a demonstrative 0–25% scale with bands at 5% (threshold) and 10%; both Plotly charts carry a text equivalent.
 - Preserves the last valid response if a later request fails.

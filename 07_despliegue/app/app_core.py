@@ -23,7 +23,7 @@ REQUIRED_FIELDS = (
     "ingresos_verificados", "vivienda", "finalidad", "num_cuotas",
     "antigüedad_empleo", "rating", "ingresos", "dti", "num_lineas_credito",
     "porc_uso_revolving", "principal", "tipo_interes", "imp_cuota",
-    "num_derogatorios", "empleo",
+    "num_derogatorios", "sector_empleo",
 )
 
 
@@ -43,7 +43,7 @@ class InputRecord(TypedDict, total=False):
     tipo_interes: float
     imp_cuota: float
     num_derogatorios: float
-    empleo: str | None
+    sector_empleo: str
 
 
 class ScoreResult(TypedDict):
@@ -71,7 +71,7 @@ class AppState:
 
 
 def compose_payload_values(visible: Mapping[str, Any], hidden: Mapping[str, Any]) -> dict[str, Any]:
-    """Une los ocho campos visibles con los obligatorios ocultos.
+    """Une los nueve campos visibles con los obligatorios ocultos.
 
     Los ocultos aportan su valor fijo del fixture; los visibles siempre ganan.
     Nunca muta los argumentos, así ocultar un campo no puede romper el contrato.

@@ -97,7 +97,8 @@ def render_filter_field(config: dict[str, Any]) -> Any:
         return st.radio(label, options, index=options.index(config["default"]), help=help_text, horizontal=True)
     if widget == "selectbox":
         options = config["options"]
-        return st.selectbox(label, options, index=options.index(config["default"]), help=help_text)
+        labels = config.get("option_labels", {})
+        return st.selectbox(label, options, index=options.index(config["default"]), help=help_text, format_func=lambda value: labels.get(value, value))
     numeric = [config["min"], config["max"], config["step"], config["default"]]
     if any(isinstance(value, float) for value in numeric):
         low, high, step, default = (float(value) for value in numeric)

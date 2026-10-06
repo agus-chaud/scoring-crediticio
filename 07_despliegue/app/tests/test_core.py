@@ -28,7 +28,7 @@ def spec() -> dict[str, object]:
 
 
 def record() -> dict[str, object]:
-    return {"ingresos_verificados": "Source Verified", "vivienda": "RENT", "finalidad": "debt_consolidation", "num_cuotas": "36 months", "antigüedad_empleo": "5 years", "rating": "B", "ingresos": 50000, "dti": 15.0, "num_lineas_credito": 12, "porc_uso_revolving": 40.0, "principal": 10000, "tipo_interes": 0.15, "imp_cuota": 350, "num_derogatorios": 0, "empleo": "Office Manager"}
+    return {"ingresos_verificados": "Source Verified", "vivienda": "RENT", "finalidad": "debt_consolidation", "num_cuotas": "36 months", "antigüedad_empleo": "5 years", "rating": "B", "ingresos": 50000, "dti": 15.0, "num_lineas_credito": 12, "porc_uso_revolving": 40.0, "principal": 10000, "tipo_interes": 0.15, "imp_cuota": 350, "num_derogatorios": 0, "sector_empleo": "administrativo"}
 
 
 class CoreTests(unittest.TestCase):
@@ -62,22 +62,52 @@ class CoreTests(unittest.TestCase):
         payload = build_payload(compose_payload_values(visible, design["hidden_fields"]))
         for field, value in design["hidden_fields"].items():
             self.assertEqual(payload[field], value)
-        # Los siete ocultos coinciden con el fixture canónico y nunca se muestran como filtros.
+        # Los seis ocultos coinciden con el fixture canónico y nunca se muestran como filtros.
         self.assertNotIn("vivienda", design["visible_fields"])
         self.assertEqual(payload["vivienda"], "RENT")
         self.assertEqual(payload["finalidad"], "debt_consolidation")
 
-    def test_eight_visible_fields_are_sent_and_win_over_hidden(self) -> None:
+    def test_nine_visible_fields_are_sent_and_win_over_hidden(self) -> None:
         design = spec()
         self.assertEqual(
             set(design["visible_fields"]),
-            {"principal", "num_cuotas", "tipo_interes", "imp_cuota", "ingresos", "dti", "porc_uso_revolving", "rating"},
+            {"principal", "num_cuotas", "tipo_interes", "imp_cuota", "ingresos", "dti", "porc_uso_revolving", "rating", "sector_empleo"},
         )
+        self.assertEqual(len(design["hidden_fields"]), 6)
         visible = {"principal": 22000, "num_cuotas": "60 months", "tipo_interes": 0.21, "imp_cuota": 500,
-                   "ingresos": 90000, "dti": 12.5, "porc_uso_revolving": 30, "rating": "C"}
+                   "ingresos": 90000, "dti": 12.5, "porc_uso_revolving": 30, "rating": "C", "sector_empleo": "salud"}
         payload = build_payload(compose_payload_values(visible, design["hidden_fields"]))
         for field, value in visible.items():
             self.assertEqual(payload[field], value)
+
+    def test_selected_sector_reaches_the_payload_and_empleo_is_gone(self) -> None:
+        design = spec()
+        self.assertNotIn("empleo", design["hidden_fields"])
+        self.assertNotIn("empleo", design["visible_fields"])
+        visible = {name: config["default"] for name, config in design["visible_fields"].items()}
+        default_payload = build_payload(compose_payload_values(visible, design["hidden_fields"]))
+        self.assertEqual(default_payload["sector_empleo"], "administrativo")
+        self.assertNotIn("empleo", default_payload)
+        visible["sector_empleo"] = "tecnologia"
+        payload = build_payload(compose_payload_values(visible, design["hidden_fields"]))
+        self.assertEqual(payload["sector_empleo"], "tecnologia")
+        self.assertNotIn("empleo", payload)
+
+    def test_sector_options_match_the_api_contract_tokens(self) -> None:
+        config = spec()["visible_fields"]["sector_empleo"]
+        self.assertEqual(len(config["options"]), 14)
+        self.assertIn(config["default"], config["options"])
+        # La etiqueta es sólo de presentación: cada token de la API tiene la suya.
+        self.assertEqual(set(config["option_labels"]), set(config["options"]))
+
+    def test_payload_without_sector_is_rejected(self) -> None:
+        raw = record()
+        del raw["sector_empleo"]
+        with self.assertRaisesRegex(ValueError, "sector_empleo"):
+            build_payload(raw)
+        raw["empleo"] = "Office Manager"
+        with self.assertRaisesRegex(ValueError, "sector_empleo"):
+            build_payload(raw)
 
     def test_compose_payload_values_does_not_mutate_inputs(self) -> None:
         visible = {"principal": 15000}
