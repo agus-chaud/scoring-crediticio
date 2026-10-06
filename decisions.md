@@ -44,7 +44,9 @@
 
 **Área:** despliegue | **Fase:** interfaz Streamlit | **Fecha:** 2026-09-01 | **Estado:** Vigente
 
-**Decisión:**  panel de filtros angosto a la izquierda (25%) y área de resultados a la derecha. Sólo se muestran ocho filtros editables: `principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving` y `rating`. Los otros seis campos obligatorios del contrato (`ingresos_verificados`, `vivienda`, `finalidad`, `antigüedad_empleo`, `num_lineas_credito`, `num_derogatorios`) quedan en `hidden_fields` del `design_spec.json` con su valor exacto de `test_payload.json` y se envían en cada request vía `compose_payload_values`.
+**Decisión:** La interfaz pasa a una composición de tablero analítico: panel de filtros angosto a la izquierda (25%) y área de resultados a la derecha. Sólo se muestran ocho filtros editables: `principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving` y `rating`. Los otros seis campos obligatorios del contrato (`ingresos_verificados`, `vivienda`, `finalidad`, `antigüedad_empleo`, `num_lineas_credito`, `num_derogatorios`) quedan en `hidden_fields` del `design_spec.json` con su valor exacto de `test_payload.json` y se envían en cada request vía `compose_payload_values`.
+
+**Actualización (DEC-012):** `sector_empleo` se sumó después como noveno filtro visible (selectbox de 14 sectores); los campos ocultos siguen siendo seis y `empleo` ya no forma parte del contrato.
 
 **Por qué esos ocho:** son los que explican de forma directa el riesgo y las condiciones del préstamo (monto, plazo, tasa, cuota, capacidad de pago vía ingresos y DTI, comportamiento revolving y rating interno). El resto son atributos de contexto que, para una visualización demostrativa, aportan poco valor de exploración y recargan el panel.
 
@@ -110,7 +112,9 @@
 
 ## DEC-010: Sector de empleo en el modelo y en el contrato de la API
 
-**Área:** modelado | **Fase:** A_05 Modelización PD / despliegue | **Fecha:** 2026-10-05 | **Estado:** Vigente
+**Área:** modelado | **Fase:** A_05 Modelización PD / despliegue | **Fecha:** 2026-10-05 | **Estado:** Vigente (parcialmente reemplazada por DEC-012)
+
+> Nota: DEC-012 reemplaza la parte del contrato de la API: el campo `empleo` y el embebido de `sector_empleo.py` en el artefacto pasaron a un campo `sector_empleo` ya resuelto (artefacto 2.0.0). La incorporación de `sector_empleo` al modelo sigue vigente.
 
 **Decisión:** `sector_empleo` entra al preprocesador como One Hot. La API agrega el campo `empleo` (título de empleo crudo, obligatorio, admite `null`) y el pipeline lo convierte en sector con `04_scripts/sector_empleo.py`, copia exacta de la regla de `02_Calidad de Datos` (verificada sobre las 83.250 filas de entrenamiento). El módulo se embebe en el artefacto 1.3.0 con `cloudpickle.register_pickle_by_value`. La app envía "Office Manager" como campo oculto. El contrato pasa de los 14 campos de DEC-001 y DEC-005 a 15.
 
@@ -133,3 +137,25 @@
 
 **Conclusión:** Resultado: EAD, HGB (lr 0,05, depth 10, 200 iteraciones, l2 0,25), MAE 0,154 en CV y 0,159 en validación interna frente a 0,177 de la mediana (−9,8%). LGD, HGB (lr 0,01, depth 5, 200 iteraciones, l2 0,75), MAE 0,089 en CV y 0,087 frente a 0,088 de la mediana (−0,6%): el modelo de LGD prácticamente no aprende, predice entre 0,88 y 0,92 para todos. Todo modelo de regresión se reporta junto a un baseline trivial. El artefacto de producción (`01_reentrenamiento.py`) todavía no incorpora estos cambios.
 
+
+## DEC-012: La API recibe `sector_empleo` en lugar del título de empleo crudo
+
+**Área:** despliegue | **Fase:** contrato de la API / dashboard | **Fecha:** 2026-10-06 | **Estado:** Vigente
+
+**Decisión:** el contrato de `POST /predict` reemplaza `empleo` por `sector_empleo`, obligatorio y restringido a 14 valores: `legal`, `salud`, `educacion`, `finanzas`, `seguridad_publica`, `tecnologia`, `transporte`, `hosteleria`, `oficios`, `ventas`, `administrativo`, `direccion`, `otros`, `desconocido`. El contrato sigue en 15 campos. Los campos extra se rechazan con 422, y un `sector_empleo` ausente, `null` o fuera de la lista también. `clean_raw_input` valida el sector contra `SECTORES_VALIDOS` en lugar de derivarlo. `04_scripts/sector_empleo.py` solo se usa para derivar el sector desde `empleo` en los datos de entrenamiento y validación. Artefacto 2.0.0 (antes 1.3.0). El dashboard muestra un selectbox "Sector de empleo" (valor inicial `administrativo`) y ya no envía "Office Manager".
+
+**Por qué:** DEC-010 dejó `empleo` como campo oculto fijo en "Office Manager", que la regla de palabras clave clasifica como `administrativo`. Todos los clientes puntuados desde el dashboard quedaban como administrativos (19,6% de impago), así que el sector no cambiaba el resultado aunque el modelo lo usa (+0,0036 de AUC en CV).
+
+**Alternativas descartadas:**
+- **A. Enviar desde la app un título representativo por sector sin cambiar la API.** Es frágil: depende de que cada título caiga en el sector esperado según las expresiones regulares de `sector_empleo.py`, y esa dependencia queda oculta en el cliente.
+- **C. Selectbox con títulos de ejemplo.** Mantiene el mismo acoplamiento con las regex que A y agrega una lista de títulos que mantener.
+
+**Consecuencias:**
+- Cambio incompatible: un cliente que envíe `empleo` recibe 422.
+- El artefacto 2.0.0 y el schema de la API se despliegan juntos; con el artefacto 1.3.0 y el schema nuevo, `/predict` responde 500.
+- `null` ya no se transforma en `desconocido` (antes, `empleo: null` sí). Para ese caso el cliente debe enviar `desconocido` de forma explícita.
+- Los clientes pasan a ser responsables de mapear un título a un sector. Un mapeo propio que difiera de `04_scripts/sector_empleo.py` cambia los scores. La regla por palabras clave deja el 18,5% de los títulos de entrenamiento en `otros`.
+
+**Verificación:** el reentrenamiento da las mismas métricas que el artefacto 1.3.0 (PD ROC-AUC 0,7077 en train y 0,7087 en validación externa; EAD MAE 0,1606; LGD MAE 0,0903). `/predict` responde 200 con un sector válido y 422 con sector inválido, ausente o `null`, y con `empleo`. El selectbox de la app envía el sector elegido (19 tests de la app en verde).
+
+**Conclusión:** el contrato recibe la variable que usa el modelo, no la entrada de la que se deriva. Cualquier regla de derivación que el cliente replique tiene que verificarse contra la regla de entrenamiento.

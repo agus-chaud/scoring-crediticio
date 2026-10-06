@@ -26,7 +26,7 @@ Tres cosas pueden sesgar la pérdida esperada si no se controlan:
 
 ## Objetivo
 
-Construir un flujo reproducible que reciba 15 variables crudas de un préstamo, calcule PD, EAD, LGD y pérdida esperada relativa, y los exponga por API y dashboard.
+Construir un flujo reproducible que reciba 15 variables de un préstamo (14 crudas y el sector de empleo ya resuelto), calcule PD, EAD, LGD y pérdida esperada relativa, y los exponga por API y dashboard.
 
 ## Enfoque técnico
 
@@ -37,7 +37,7 @@ Construir un flujo reproducible que reciba 15 variables crudas de un préstamo, 
 5. **Modelización** (`05`–`07`): PD con regresión logística; EAD y LGD con `HistGradientBoostingRegressor` entrenado solo sobre impagos.
 6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
 
-Modelos en producción (artefacto 1.3.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD.
+Modelos en producción (artefacto 2.0.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD.
 
 ## Decisiones técnicas relevantes
 
@@ -53,9 +53,9 @@ Modelos en producción (artefacto 1.3.0): regresión logística Ridge (`l1_ratio
 
 **Problema:** el AUC dice si el modelo ordena, no si la probabilidad es correcta, y la pérdida esperada multiplica la probabilidad. **Elección:** AUC/Gini/KS para ordenamiento; Brier y curva de calibración para exactitud, sobre el test interno y sobre `validacion.pkl`. `03_validacion_externa.py` aplica los mismos filtros de filas que el entrenamiento.
 
-### Sector de empleo en el contrato de la API ([DEC-010](decisions.md))
+### Sector de empleo en el contrato de la API ([DEC-010](decisions.md), [DEC-012](decisions.md))
 
-**Problema:** de las cuatro variables con señal que quedaban fuera, solo `sector_empleo` mejora el modelo de forma apreciable (+0,0036 de AUC; las otras tres, entre +0,0001 y +0,0007). **Elección:** la API recibe el título de empleo crudo (`empleo`, obligatorio pero admite `null`) y el pipeline lo convierte con `04_scripts/sector_empleo.py`, la misma regla de la fase de calidad. El código viaja embebido en el artefacto (`cloudpickle.register_pickle_by_value`), así que la API no depende de `04_scripts`. Un cliente que siga enviando los 14 campos viejos recibe un 422 explícito en lugar de quedar clasificado en silencio como `desconocido`, el sector de mayor riesgo.
+**Problema:** de las cuatro variables con señal que quedaban fuera, solo `sector_empleo` mejora el modelo de forma apreciable (+0,0036 de AUC; las otras tres, entre +0,0001 y +0,0007). **Elección (DEC-010, reemplazada en parte por DEC-012):** la primera versión (artefacto 1.3.0) recibía el título de empleo crudo (`empleo`) y lo convertía dentro del pipeline, pero el dashboard enviaba siempre "Office Manager", así que todos los clientes se puntuaban como `administrativo`. Desde el artefacto 2.0.0 la API recibe `sector_empleo` ya resuelto: obligatorio, 14 valores posibles, y un valor ausente, `null`, inválido o un campo extra (como `empleo`) devuelve 422. El dashboard tiene un selector "Sector de empleo" (valor inicial `administrativo`). `04_scripts/sector_empleo.py` solo deriva el sector desde `empleo` en los datos de entrenamiento y validación; un cliente que mapee títulos a sectores por su cuenta cambia los scores si su regla difiere de esa. Las métricas no cambian (AUC de PD en validación externa 0,7087).
 
 ### EAD y LGD comparados con un baseline ([DEC-011](decisions.md))
 
@@ -78,7 +78,7 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 | Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente al azar. |
 | EAD | MAE 0,159 vs 0,177 de la mediana (validación interna) | Mejora 9,8%; las predicciones van de 0,55 a 0,95 y sobrestiman los EAD bajos. |
 | LGD | MAE 0,087 vs 0,088 de la mediana (validación interna) | Mejora 0,6%: con las variables actuales no distingue préstamos. |
-| Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como título de empleo crudo. |
+| Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como `sector_empleo` (DEC-012; antes, título crudo). |
 | Variables sin información | `num_meses_desde_ult_retraso`, `num_cancelaciones_12meses`: AUC ≈ 0,50 | Se excluyeron. |
 | Variables con señal redundante | `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`: AUC ≈ 0,55 solas, +0,0001 a +0,0007 en el modelo | Su información ya está en otras variables; no justifican ampliar el contrato. |
 
@@ -177,5 +177,5 @@ En Linux/macOS: `source .venv/bin/activate` y `/` en lugar de `\`.
 - **Sin umbral de decisión.** Falta cuantificar costo de falsos positivos y beneficio de verdaderos positivos para elegir un umbral que maximice el valor esperado.
 - **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento; si un cliente tiene varios préstamos, la validación puede ser algo optimista.
-- **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros`. El dashboard envía siempre "Office Manager" (`administrativo`, 19,6% de impago, la tasa más cercana al promedio) como campo oculto.
+- **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros`. El dashboard ya no fija el sector: lo elige quien usa el selector, y el mapeo de un título a un sector queda del lado del cliente.
 - **Uso responsable.** El dashboard es demostrativo: no es aprobación, denegación, oferta ni *pricing*. EAD y LGD son proporciones condicionadas al impago, no montos absolutos. No subas credenciales ni datos sensibles al repositorio.

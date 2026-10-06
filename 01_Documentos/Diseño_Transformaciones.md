@@ -39,7 +39,7 @@
 - [DEC-007](../decisions.md#dec-007-sin-rebalanceo-de-clases-para-pd): sin rebalanceo de clases.
 - [DEC-008](../decisions.md#dec-008-modelización-pd-con-preprocesador-dentro-de-la-validación-cruzada-y-validación-externa): el preprocesador se clona y ajusta dentro de la validación cruzada del modelo PD.
 - [DEC-011](../decisions.md#dec-011-modelización-ead-y-lgd-con-el-ganador-del-grid-baseline-y-preprocesador-dentro-de-la-validación-cruzada): EAD y LGD también clonan el preprocesador dentro de la validación cruzada, a partir de tablones sin transformar.
-- [DEC-010](../decisions.md#dec-010-sector-de-empleo-en-el-modelo-y-en-el-contrato-de-la-api): `sector_empleo` entra al modelo; la API recibe el título de empleo crudo (15 campos).
+- [DEC-010](../decisions.md#dec-010-sector-de-empleo-en-el-modelo-y-en-el-contrato-de-la-api): `sector_empleo` entra al modelo. Su parte del contrato de la API fue reemplazada por [DEC-012](../decisions.md#dec-012-la-api-recibe-sector_empleo-en-lugar-del-título-de-empleo-crudo): la API recibe `sector_empleo` ya resuelto (15 campos) y solo en entrenamiento y validación se deriva de `empleo`.
 
 ## Salidas
 
@@ -59,4 +59,4 @@ Filas preservadas, target alineada por `id_cliente`, sin variables originales ni
 
 - **Colinealidad:** en el tablón transformado, `oe__rating` vs `ss__tipo_interes` tienen correlación 0,95 y `yj__principal` vs `yj__imp_cuota`, 0,97. Con Ridge, los coeficientes de `rating` y `tipo_interes` salen los dos positivos (con el diseño anterior, `tipo_interes` salía negativo), pero aportan casi la misma información: la fase de selección de variables debería quedarse con una de cada par.
 - **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): son pocos casos, conviene revisarlos en calidad.
-- **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0 (con `sector_empleo` desde el 1.3.0). Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.
+- **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0 (con `sector_empleo` desde el 1.3.0; desde el 2.0.0 la API recibe el sector y no el título de empleo). Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.
