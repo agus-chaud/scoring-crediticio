@@ -159,3 +159,49 @@
 **Verificación:** el reentrenamiento da las mismas métricas que el artefacto 1.3.0 (PD ROC-AUC 0,7077 en train y 0,7087 en validación externa; EAD MAE 0,1606; LGD MAE 0,0903). `/predict` responde 200 con un sector válido y 422 con sector inválido, ausente o `null`, y con `empleo`. El selectbox de la app envía el sector elegido (19 tests de la app en verde).
 
 **Conclusión:** el contrato recibe la variable que usa el modelo, no la entrada de la que se deriva. Cualquier regla de derivación que el cliente replique tiene que verificarse contra la regla de entrenamiento.
+
+
+## DEC-013: Modelo de PD: regresión logística Ridge con splines en 4 variables, en lugar de EBM
+
+**Área:** modelado | **Fase:** A_05 Modelización PD | **Fecha:** 2026-10-06 | **Estado:** Vigente
+
+**Decisión:** usar para la PD la regresión logística Ridge con `SplineTransformer(degree=3, knots='quantile', include_bias=False, n_knots=8)` aplicado, dentro del `Pipeline` y después del preprocesador, a `yj__principal`, `yj__dti`, `yj__imp_cuota` y `ss__tipo_interes`; `C≈0,316`, `l1_ratio=0`. Producción (`07_despliegue/01_reentrenamiento.py`, función `make_pd_pipeline`) fija `n_knots=8` y `C=10**-0.5` sin repetir la búsqueda: artefacto 2.1.0 (antes 2.0.0), con el contrato de la API sin cambios. El notebook 05 incorpora la sección "Challenger: regresión logística con splines" y evalúa el modelo final con los gráficos de reporting; la logística lineal de DEC-008 queda como baseline (`modelo`, `pred_val_lineal`). No reemplazar la logística por un Explainable Boosting Machine (EBM).
+
+**Por qué:** la logística lineal sobreestimaba la PD en los extremos de riesgo. En validación externa, el decil de menor riesgo tenía PD media 6,1% frente a una tasa real de 4,6%, y el de mayor riesgo 47,6% frente a 44,6%. Un EBM entrenado como challenger mostró que `tipo_interes` (R² lineal 0,76), `dti` (0,75), `imp_cuota` (0,52) y `principal` (0,40) tienen efectos no lineales; `rating`, `ingresos` y `num_lineas_credito` son casi lineales (R² 0,90 a 0,97). Las interacciones del EBM suman solo ~4% de la importancia total (0,071 de 1,69), así que la ganancia viene de las curvas por variable, no de interacciones.
+
+**Resultados** (mismo split `random_state=42`, mismo preprocesador clonado dentro de `StratifiedKFold(5)`, mismos filtros de validación externa de DEC-009; 35.592 préstamos externos):
+
+| Modelo | AUC CV | Gini test | Gini externo | Brier externo | Error de calibración por deciles | Impagos capturados en el 20% de mayor PD |
+|---|---|---|---|---|---|---|
+| Logística Ridge lineal (campeón) | 0,7074 | 0,415 | 0,416 | 0,1442 | 0,0111 | 39,4% |
+| Logística + splines, 4 variables | 0,7098 | 0,418 | 0,423 | 0,1435 | 0,0036 | 39,8% |
+| Logística + splines, 7 variables continuas | 0,7096 | 0,419 | 0,422 | 0,1435 | 0,0048 | 39,9% |
+| EBM (`interactions=10`, `min_samples_leaf=50`) | 0,7106 | 0,422 | 0,429 | 0,1430 | 0,0052 | 40,2% |
+| `HistGradientBoostingClassifier` sin ajustar (referencia) | n/d | n/d | 0,453 | 0,1412 | n/d | 41,5% |
+
+- Las splines en 4 variables suman +0,006 de Gini externo sobre el campeón (IC95% bootstrap de 1.000 remuestreos: +0,004 a +0,009) y ganan en los 5 folds (+0,0024 de AUC medio). Cierran el 49% de la brecha de Gini con el EBM (+0,0126, IC95% +0,0095 a +0,0159). El resto de la brecha, 0,0065 (IC95% 0,0045 a 0,0085), también es estadísticamente distinto de cero.
+- La calibración queda mejor que la del EBM: decil de menor riesgo 4,2% predicho frente a 4,1% real, decil de mayor riesgo 45,5% frente a 44,7%.
+- Las curvas aprendidas coinciden con las del EBM. Contribución al log-odds en el tramo más bajo de `tipo_interes`: −0,822 (spline) y −0,815 (EBM); en `dti`: −0,133 y −0,132.
+- Con 7 variables no mejora respecto de 4 (Gini externo 0,4222 contra 0,4225).
+- En `principal`, la logística lineal asigna un efecto decreciente (+0,16 en montos bajos a −0,15 en altos), mientras que la spline y el EBM muestran que sube y luego baja. Hipótesis sin verificar: la colinealidad con `imp_cuota` (0,97) reparte el efecto de forma arbitraria en el modelo lineal.
+
+**Alternativas descartadas:**
+- **A. Reemplazar por EBM.** Gana +0,013 de Gini externo y calibra bien, pero exige la dependencia `interpret`, un artefacto de 4,3 MB, entrenar entre 25 y 45 s por fit (grilla de 20 fits: 753 s) y cambiar el reentrenamiento y el despliegue, para sumar solo +0,0065 de Gini sobre las splines.
+- **B. Gradient boosting como modelo de PD.** Llega a +0,037 de Gini externo sobre la logística, la mayor ganancia medida, pero pierde la explicación por variable. Esa pérdida es una decisión de riesgo y regulación, no solo técnica, y queda abierta.
+- **C. Splines en las 7 variables continuas.** No mejora el rendimiento ni la calibración (0,0048 contra 0,0036) y agrega columnas.
+
+**Consecuencias:**
+- La exploración con la grilla completa (`n_knots` {4, 6, 8} × `C = logspace(-3, 2, 11)`, 33 combinaciones) tardó 2.123 s con 4 variables y 1.306 s con 7, contra segundos para la logística lineal. El notebook 05 usa una grilla más corta alrededor del óptimo (`C = logspace(-2, 1, 7)`, 21 combinaciones): tarda 7 minutos y devuelve el mismo óptimo (`n_knots=8`, `C≈0,316`, AUC CV 0,7098). Producción fija esos valores en lugar de volver a buscar.
+- No agrega dependencias: `SplineTransformer` es de scikit-learn. El artefacto sigue siendo una logística; cada variable con spline se explica con una curva en lugar de un coeficiente.
+- `n_knots=8` es el borde de la grilla probada (4, 6, 8). La diferencia entre 4 y 8 nudos es de 0,0001 de AUC, pero no se probaron más.
+
+**Límites de la evidencia:**
+- Una sola partición train/test; el bootstrap mide solo la variabilidad de la muestra de validación, no la de reentrenar.
+- El campeón se volvió a ajustar con los hiperparámetros ya reportados (Ridge, `C≈0,316`), no se volvió a buscar. La grilla del EBM fue chica (4 combinaciones) y el boosting de referencia usó valores por defecto.
+- La calibración por deciles se calcula sobre los deciles de riesgo de cada modelo, de modo que cada fila agrupa clientes distintos.
+- En el notebook 05, el boosting y el EBM son referencias con parámetros fijos: el EBM usa los valores de una grilla previa de 4 combinaciones, que no se repite, y requiere la librería opcional `interpret` (si falta, la celda lo avisa y el notebook sigue).
+- El artefacto 2.1.0 se entrenó con el `RATING_ORDER` invertido (G a A) que hay pendiente en el árbol de trabajo de `01_reentrenamiento.py` y que no entra en el commit de esta decisión. Con Ridge, invertir el orden de una variable ordinal solo cambia el signo de su coeficiente, así que no altera las predicciones; hasta que ese cambio se commitee, el script versionado y el artefacto versionado no coinciden en ese orden.
+
+**Verificación de la integración:** el notebook 05 ejecuta de punta a punta sin errores y reproduce el experimento: Gini externo 0,4225, error medio por decil 0,0036, diferencia de Gini frente a la lineal +0,0062 (IC95% +0,0037 a +0,0089, 1.000 remuestreos) y ganancia en los 5 folds. Reentrenamiento: PD ROC-AUC 0,7091 en el test interno; EAD (MAE 0,1606) y LGD (MAE 0,0903) no cambian. Validación externa del artefacto 2.1.0 sobre 35.592 préstamos: PD ROC-AUC 0,7119 (con 2.0.0, 0,7087); los informes de `06_resultados/Validacion/` se regeneran con ese valor. `/predict` responde 200 con un sector válido y 422 con uno inválido; los 19 tests de la app pasan.
+
+**Conclusión:** la brecha entre la logística y el EBM era, en buena parte, falta de curvas en cuatro variables. Con splines la logística sube +0,006 de Gini, corrige los extremos de calibración y sigue siendo un modelo simple y explicable. Queda abierta la decisión de si el negocio justifica evaluar el boosting a cambio de la explicación por variable.

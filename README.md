@@ -6,8 +6,9 @@ Diccionario de campos: [`Diccionario.xlsx`](Diccionario.xlsx) · Decisiones téc
 
 ## Hallazgos clave
 
-- **PD ordena bien y está calibrada.** AUC **0,708** (Gini 0,42) sobre **35.592** préstamos de validación externa no usados para entrenar; la validación cruzada da 0,707, sin sobreajuste. La PD media predicha es **19,8%** frente a una tasa real de **19,7%**.
-- **Revisar el 20% de mayor PD captura el 39% de los impagos**, casi el doble que revisar al azar.
+- **PD ordena bien y está calibrada.** AUC **0,711** (Gini 0,42) sobre **35.592** préstamos de validación externa no usados para entrenar; la validación cruzada da 0,710, sin sobreajuste. La PD media predicha es **19,8%** frente a una tasa real de **19,7%**.
+- **Revisar el 20% de mayor PD captura el 40% de los impagos**, el doble que revisar al azar.
+- **Las splines corrigen la PD en los extremos.** La logística lineal predecía 6,1% de PD en el decil de menor riesgo frente a 4,6% real; con splines en 4 variables, 4,2% frente a 4,1%. El error medio por decil baja de 0,0111 a 0,0036 y el Gini externo sube de 0,416 a 0,423.
 - **EAD y LGD apenas superan a predecir la mediana.** MAE **0,159 vs 0,177** en EAD (−9,8%) y **0,087 vs 0,088** en LGD (−0,6%). El modelo de LGD asigna casi la misma pérdida (0,88–0,92) a todos los préstamos.
 - **El sector de empleo es la única variable fuera del contrato original que mejora el modelo:** +**0,0036** de AUC en CV. Los clientes sin título de empleo tienen **26,6%** de impago, frente a 14–25% en el resto.
 - **`rating` y `tipo_interes` tienen correlación 0,95** (y `principal`/`imp_cuota`, 0,97): con el escalado anterior el coeficiente de `tipo_interes` salía con el signo invertido.
@@ -34,10 +35,10 @@ Construir un flujo reproducible que reciba 15 variables de un préstamo (14 crud
 2. **Calidad** (`02_Calidad de Datos`): se eliminan ingresos > 400.000, `dti = 999` y préstamos sin desenlace; imputaciones y recortes a límites de negocio.
 3. **EDA** (`03_EDA`): definición de `target_pd` y tasa de impago por variable.
 4. **Transformación** (`04_Transformacion de datos`): targets de EAD y LGD y un `ColumnTransformer` persistido en `05_modelos/preprocesador.joblib`.
-5. **Modelización** (`05`–`07`): PD con regresión logística; EAD y LGD con `HistGradientBoostingRegressor` entrenado solo sobre impagos.
+5. **Modelización** (`05`–`07`): PD con regresión logística Ridge con splines; EAD y LGD con `HistGradientBoostingRegressor` entrenado solo sobre impagos.
 6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
 
-Modelos en producción (artefacto 2.0.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) para PD, la mejor configuración de la búsqueda del notebook 05; `HistGradientBoostingRegressor` para EAD y LGD.
+Modelos en producción (artefacto 2.1.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) con splines cúbicas de 8 nudos en `principal`, `dti`, `imp_cuota` y `tipo_interes` para PD, la mejor configuración de la búsqueda del notebook 05 (DEC-013); `HistGradientBoostingRegressor` para EAD y LGD.
 
 ## Decisiones técnicas relevantes
 
@@ -61,6 +62,10 @@ Modelos en producción (artefacto 2.0.0): regresión logística Ridge (`l1_ratio
 
 **Problema:** los notebooks 06 y 07 reentrenaban el modelo final con hiperparámetros escritos a mano distintos del ganador de la búsqueda, sin semilla y sin referencia. **Elección:** `best_estimator_`, `random_state=42`, preprocesador clonado dentro del `Pipeline` y comparación del MAE contra `DummyRegressor(strategy='median')`. Esa comparación reveló que el modelo de LGD casi no aprende.
 
+### Splines en la regresión logística de PD ([DEC-013](decisions.md))
+
+**Problema:** la logística lineal sobreestimaba la PD en los extremos de riesgo (decil de menor riesgo: 6,1% predicho frente a 4,6% real) y `tipo_interes`, `dti`, `imp_cuota` y `principal` tienen efectos no lineales (R² del ajuste lineal a la curva de un EBM: 0,76, 0,75, 0,52 y 0,40). **Elección:** `SplineTransformer` (grado 3, 8 nudos en cuantiles) sobre esas cuatro variables, dentro del `Pipeline` y con `C≈0,316` fijo en producción. **Descartado:** un EBM como reemplazo (+0,0065 de Gini externo sobre las splines, pero con la dependencia `interpret`, un artefacto de 4,3 MB y 25 a 45 s por ajuste) y gradient boosting (+0,037 de Gini, a costa de la explicación por variable; decisión de riesgo abierta). **Límite:** una sola partición train/test y sin repetir la búsqueda del modelo lineal.
+
 ### Sin rebalanceo de clases ([DEC-007](decisions.md))
 
 **Problema:** la tasa de impago es 19,9% (16.568 casos), sin escasez de positivos. **Elección:** no remuestrear, porque desplazaría la PD hacia arriba y obligaría a recalibrarla antes de calcular la pérdida esperada.
@@ -73,11 +78,12 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 
 | Área analizada | Hallazgo | Interpretación |
 |---|---|---|
-| Ordenamiento PD | AUC 0,708 · Gini 0,42 · KS 0,31 en validación externa | Estable entre CV, test y validación externa; separa claramente mejor que el azar. |
-| Calibración PD | Brier 0,144 frente a 0,158 sin modelo; ±3,0 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
-| Captura de impagos | 20% de mayor PD → 39% de los impagos | Priorizar la revisión por PD casi duplica la eficiencia frente al azar. |
+| Ordenamiento PD | AUC 0,711 · Gini 0,42 · KS 0,31 en validación externa | Estable entre CV, test y validación externa; separa claramente mejor que el azar. |
+| Calibración PD | Brier 0,1435 frente a 0,158 sin modelo; ±0,8 p.p. por decil | La probabilidad se puede usar directamente en `PD × EAD × LGD`. |
+| Captura de impagos | 20% de mayor PD → 40% de los impagos | Priorizar la revisión por PD duplica la eficiencia frente al azar. |
 | EAD | MAE 0,159 vs 0,177 de la mediana (validación interna) | Mejora 9,8%; las predicciones van de 0,55 a 0,95 y sobrestiman los EAD bajos. |
 | LGD | MAE 0,087 vs 0,088 de la mediana (validación interna) | Mejora 0,6%: con las variables actuales no distingue préstamos. |
+| Splines en la PD | Gini externo 0,416 → 0,423 (IC95% del bootstrap de la diferencia +0,004 a +0,009; gana en 5 de 5 folds); error medio por decil 0,0111 → 0,0036 | Cierra la mitad de la brecha de Gini con un EBM y calibra mejor que él, sin dependencias nuevas (DEC-013). |
 | Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como `sector_empleo` (DEC-012; antes, título crudo). |
 | Variables sin información | `num_meses_desde_ult_retraso`, `num_cancelaciones_12meses`: AUC ≈ 0,50 | Se excluyeron. |
 | Variables con señal redundante | `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`: AUC ≈ 0,55 solas, +0,0001 a +0,0007 en el modelo | Su información ya está en otras variables; no justifican ampliar el contrato. |
