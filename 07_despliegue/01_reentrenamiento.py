@@ -40,7 +40,8 @@ API_ARTEFACT_PATH = PROJECT_ROOT / "07_despliegue" / "api" / "artefacto_pipeline
 RANDOM_STATE = 42
 
 CATEGORICAL_INPUT_COLUMNS = ["ingresos_verificados", "vivienda", "finalidad", "num_cuotas"]
-# sector_empleo is derived from the raw job title (`empleo`) inside clean_raw_input.
+# sector_empleo is an input of the API contract; for training data it is derived from the raw job title
+# (`empleo`) with sector_empleo.asignar_sector before fitting.
 OHE_COLUMNS = CATEGORICAL_INPUT_COLUMNS + ["sector_empleo"]
 ORDINAL_COLUMNS = ["antigüedad_empleo", "rating"]
 # Skewed numerics (|skew| > 0.75 in training) get Yeo-Johnson; the rest only standard scaling.
@@ -48,7 +49,7 @@ SKEWED_NUMERIC_COLUMNS = ["ingresos", "dti", "num_lineas_credito", "principal", 
 SYMMETRIC_NUMERIC_COLUMNS = ["porc_uso_revolving", "tipo_interes"]
 NUMERIC_COLUMNS = SKEWED_NUMERIC_COLUMNS + SYMMETRIC_NUMERIC_COLUMNS
 BINARIZED_COLUMNS = ["num_derogatorios"]
-RAW_INPUT_COLUMNS = CATEGORICAL_INPUT_COLUMNS + ORDINAL_COLUMNS + NUMERIC_COLUMNS + BINARIZED_COLUMNS + ["empleo"]
+RAW_INPUT_COLUMNS = CATEGORICAL_INPUT_COLUMNS + ORDINAL_COLUMNS + NUMERIC_COLUMNS + BINARIZED_COLUMNS + ["sector_empleo"]
 DEFAULT_STATUSES = {
     "Charged Off",
     "Does not meet the credit policy. Status:Charged Off",
@@ -74,7 +75,9 @@ def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.loc[:, RAW_INPUT_COLUMNS].copy()
     result["antigüedad_empleo"] = result["antigüedad_empleo"].fillna("desconocido")
-    result["sector_empleo"] = sector_empleo.asignar_sector(result.pop("empleo"))
+    invalid = sorted(set(result["sector_empleo"].dropna().unique()) - set(sector_empleo.SECTORES_VALIDOS))
+    if invalid or result["sector_empleo"].isna().any():
+        raise ValueError(f"sector_empleo must be one of {sector_empleo.SECTORES_VALIDOS}; got invalid values: {invalid or 'null'}")
     result["dti"] = result["dti"].clip(0, 100)
     result["porc_uso_revolving"] = result["porc_uso_revolving"].clip(0, 100)
     return result
@@ -126,6 +129,8 @@ def build_targets(df: pd.DataFrame) -> pd.DataFrame:
 
 
 raw = pd.read_pickle(TRAIN_PATH)
+# The training data still holds the raw job title; the API receives the sector directly.
+raw["sector_empleo"] = sector_empleo.asignar_sector(raw["empleo"])
 dataset = build_targets(raw)
 train_frame, test_frame = train_test_split(
     dataset, test_size=0.30, stratify=dataset["target_pd"], random_state=RANDOM_STATE
@@ -153,7 +158,7 @@ ead_pipeline.fit(default_dataset, default_dataset["target_ead"])
 lgd_pipeline.fit(default_dataset, default_dataset["target_lgd"])
 
 artefact = {
-    "version": "1.3.0",
+    "version": "2.0.0",
     "raw_input_columns": RAW_INPUT_COLUMNS,
     "models": {"pd": pd_pipeline, "ead": ead_pipeline, "lgd": lgd_pipeline},
     "evaluation": {"pd_roc_auc": float(pd_auc), "ead_mae": float(ead_mae), "lgd_mae": float(lgd_mae)},

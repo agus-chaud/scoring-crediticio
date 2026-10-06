@@ -1,10 +1,10 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class RegistroEntrada(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     id_cliente: Optional[int] = None
     ingresos_verificados: str
@@ -21,8 +21,11 @@ class RegistroEntrada(BaseModel):
     tipo_interes: float
     imp_cuota: float
     num_derogatorios: float
-    # Raw job title; required so clients state it explicitly, null when unknown ("desconocido" sector).
-    empleo: Optional[str]
+    # Employment sector (see 04_scripts/sector_empleo.py); required, never null: send "desconocido" when unknown.
+    sector_empleo: Literal[
+        "legal", "salud", "educacion", "finanzas", "seguridad_publica", "tecnologia", "transporte",
+        "hosteleria", "oficios", "ventas", "administrativo", "direccion", "otros", "desconocido",
+    ]
 
 
 class ScoringSalida(BaseModel):

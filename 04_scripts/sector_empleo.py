@@ -65,6 +65,9 @@ PATRONES_SECTOR = {
                   'head'],
 }
 
+# Every value `asignar_sector` can return; the API contract accepts exactly these.
+SECTORES_VALIDOS = [*PATRONES_SECTOR, 'otros', 'desconocido']
+
 # One regex per sector; \b forces whole-word matches ("rn" must not match inside "intern").
 REGEX_SECTOR = {sector: r'\b(?:' + '|'.join(palabras) + r')\b'
                 for sector, palabras in PATRONES_SECTOR.items()}

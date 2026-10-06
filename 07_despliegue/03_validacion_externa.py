@@ -1,6 +1,7 @@
 """Evaluate the released artefact against the untouched validation split."""
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,10 @@ from sklearn.metrics import mean_absolute_error, roc_auc_score
 from api.scoring import scoring_df
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "04_scripts"))
+
+import sector_empleo  # noqa: E402
+
 VALIDATION_PATH = PROJECT_ROOT / "02_datos" / "02_Validacion" / "validacion.pkl"
 RESULT_DIR = PROJECT_ROOT / "06_resultados" / "Validacion"
 DEFAULT_STATUSES = {
@@ -26,6 +31,8 @@ validation = pd.read_pickle(VALIDATION_PATH)
 validation = validation.loc[validation["ingresos"].fillna(0) <= 400000]
 validation = validation.loc[validation["dti"] != DTI_MISSING_CODE]
 validation = validation.loc[~validation["estado"].isin(UNRESOLVED_STATUSES)].copy()
+# The API receives the sector directly; derive it from the raw job title in the validation data.
+validation["sector_empleo"] = sector_empleo.asignar_sector(validation["empleo"])
 validation["target_pd"] = validation["estado"].isin(DEFAULT_STATUSES).astype(int)
 pending = validation["principal"] - validation["imp_amortizado"]
 validation["target_ead"] = (pending / validation["principal"]).replace([np.inf, -np.inf], np.nan).fillna(0).clip(0, 1)
