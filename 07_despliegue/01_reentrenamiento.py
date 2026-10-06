@@ -63,7 +63,7 @@ EMPLOYMENT_ORDER = [
     "desconocido", "< 1 year", "1 year", "2 years", "3 years", "4 years",
     "5 years", "6 years", "7 years", "8 years", "9 years", "10+ years",
 ]
-RATING_ORDER = ["A", "B", "C", "D", "E", "F", "G"]
+RATING_ORDER = ["G", "F", "E", "D", "C", "B", "A"]
 # Categories seen fewer times than this share one infrequent column (e.g. vivienda ANY/NONE/OTHER).
 MIN_CATEGORY_FREQUENCY = 200
 # Preprocessed columns that get a spline in the PD model because their effect is non-linear (DEC-013).
