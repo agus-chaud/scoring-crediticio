@@ -23,6 +23,7 @@ from sklearn.preprocessing import (
     OneHotEncoder,
     OrdinalEncoder,
     PowerTransformer,
+    SplineTransformer,
     StandardScaler,
 )
 
@@ -65,6 +66,8 @@ EMPLOYMENT_ORDER = [
 RATING_ORDER = ["A", "B", "C", "D", "E", "F", "G"]
 # Categories seen fewer times than this share one infrequent column (e.g. vivienda ANY/NONE/OTHER).
 MIN_CATEGORY_FREQUENCY = 200
+# Preprocessed columns that get a spline in the PD model because their effect is non-linear (DEC-013).
+PD_SPLINE_COLUMNS = ["yj__principal", "yj__dti", "yj__imp_cuota", "ss__tipo_interes"]
 
 
 def clean_raw_input(df: pd.DataFrame) -> pd.DataFrame:
@@ -116,6 +119,24 @@ def make_model_pipeline(model) -> Pipeline:
     return Pipeline([("preprocess", make_preprocessor()), ("model", model)])
 
 
+def make_pd_pipeline() -> Pipeline:
+    """Ridge logistic regression with cubic splines on PD_SPLINE_COLUMNS (DEC-013).
+
+    The splines sit after the preprocessor and inside the pipeline, so they are fitted only on the rows
+    the pipeline is fitted on. The preprocessor must return a DataFrame to select the columns by name.
+    """
+    spline_step = ColumnTransformer(
+        [("spl", SplineTransformer(n_knots=8, degree=3, knots="quantile", include_bias=False), PD_SPLINE_COLUMNS)],
+        remainder="passthrough",
+        verbose_feature_names_out=False,
+    ).set_output(transform="pandas")
+    return Pipeline([
+        ("preprocess", make_preprocessor().set_output(transform="pandas")),
+        ("splines", spline_step),
+        ("model", LogisticRegression(solver="saga", l1_ratio=0.0, C=10 ** -0.5, max_iter=3000, random_state=RANDOM_STATE)),
+    ])
+
+
 def build_targets(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     result = result.loc[result["ingresos"].fillna(0) <= 400000].copy()
@@ -136,8 +157,9 @@ train_frame, test_frame = train_test_split(
     dataset, test_size=0.30, stratify=dataset["target_pd"], random_state=RANDOM_STATE
 )
 
-# Best configuration from the grid search in Notebooks/05 (DEC-008, DEC-010): Ridge with C = 10**-0.5 (~0.316).
-pd_pipeline = make_model_pipeline(LogisticRegression(solver="saga", l1_ratio=0.0, C=10 ** -0.5, max_iter=3000, random_state=RANDOM_STATE))
+# Best configuration from the grid search in Notebooks/05 (DEC-008, DEC-010, DEC-013): Ridge with C = 10**-0.5 (~0.316)
+# and 8 spline knots, fixed here instead of searched again.
+pd_pipeline = make_pd_pipeline()
 ead_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.1, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=1.0, random_state=RANDOM_STATE))
 lgd_pipeline = make_model_pipeline(HistGradientBoostingRegressor(learning_rate=0.01, max_iter=100, max_depth=5, min_samples_leaf=50, l2_regularization=0.5, random_state=RANDOM_STATE))
 
@@ -158,7 +180,7 @@ ead_pipeline.fit(default_dataset, default_dataset["target_ead"])
 lgd_pipeline.fit(default_dataset, default_dataset["target_lgd"])
 
 artefact = {
-    "version": "2.0.0",
+    "version": "2.1.0",
     "raw_input_columns": RAW_INPUT_COLUMNS,
     "models": {"pd": pd_pipeline, "ead": ead_pipeline, "lgd": lgd_pipeline},
     "evaluation": {"pd_roc_auc": float(pd_auc), "ead_mae": float(ead_mae), "lgd_mae": float(lgd_mae)},
