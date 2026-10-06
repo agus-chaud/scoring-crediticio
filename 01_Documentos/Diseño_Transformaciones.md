@@ -53,9 +53,7 @@
 
 ## Validaciones realizadas
 
-Filas preservadas, target alineada por `id_cliente`, sin variables originales ni intermedias en la salida, sin nulos,
-sin columnas duplicadas, sin multicolinealidad perfecta entre binarias y una fila con categorías inventadas
-transformada sin error. El preprocesador recargado desde joblib reproduce el tablón exactamente. Los tablones EAD y LGD crudos y transformados comparten índice y target.
+Filas preservadas, target alineada por `id_cliente`, sin variables originales ni intermedias en la salida, sin nulos, sin columnas duplicadas, sin multicolinealidad perfecta entre binarias y una fila con categorías inventadas transformada sin error. El preprocesador recargado desde joblib reproduce el tablón exactamente. Los tablones EAD y LGD crudos y transformados comparten índice y target.
 
 ## Riesgos identificados
 

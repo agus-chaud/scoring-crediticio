@@ -44,7 +44,7 @@
 
 **Área:** despliegue | **Fase:** interfaz Streamlit | **Fecha:** 2026-09-01 | **Estado:** Vigente
 
-**Decisión:** La interfaz pasa a una composición de tablero analítico: panel de filtros angosto a la izquierda (25%) y área de resultados a la derecha. Sólo se muestran ocho filtros editables: `principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving` y `rating`. Los otros seis campos obligatorios del contrato (`ingresos_verificados`, `vivienda`, `finalidad`, `antigüedad_empleo`, `num_lineas_credito`, `num_derogatorios`) quedan en `hidden_fields` del `design_spec.json` con su valor exacto de `test_payload.json` y se envían en cada request vía `compose_payload_values`.
+**Decisión:**  panel de filtros angosto a la izquierda (25%) y área de resultados a la derecha. Sólo se muestran ocho filtros editables: `principal`, `num_cuotas`, `tipo_interes`, `imp_cuota`, `ingresos`, `dti`, `porc_uso_revolving` y `rating`. Los otros seis campos obligatorios del contrato (`ingresos_verificados`, `vivienda`, `finalidad`, `antigüedad_empleo`, `num_lineas_credito`, `num_derogatorios`) quedan en `hidden_fields` del `design_spec.json` con su valor exacto de `test_payload.json` y se envían en cada request vía `compose_payload_values`.
 
 **Por qué esos ocho:** son los que explican de forma directa el riesgo y las condiciones del préstamo (monto, plazo, tasa, cuota, capacidad de pago vía ingresos y DTI, comportamiento revolving y rating interno). El resto son atributos de contexto que, para una visualización demostrativa, aportan poco valor de exploración y recargan el panel.
 
