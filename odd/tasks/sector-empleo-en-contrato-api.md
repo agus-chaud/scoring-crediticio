@@ -29,7 +29,7 @@ Hoy `empleo` va como campo oculto fijo ("Office Manager" -> `administrativo`), p
 ## Tasks
 - [x] T1 Backend: reentrenamiento + schema + payloads + validación externa + reexportar artefacto 2.0.0. Ruta: delegada (writer). Commit: 5715b63
 - [x] T2 App: selectbox `sector_empleo`, `app_core.py`, `design_spec.json`, tests. Ruta: delegada (writer). Commit: 845d0c7
-- [ ] T3 Docs: DEC-012, README, Diseño_Transformaciones, app/README. Ruta: delegada (writer). Commit: _pendiente_
+- [x] T3 Docs: DEC-012, README, Diseño_Transformaciones, notebook 04 (app/README ya cubierto por T2). Ruta: delegada (writer). Commit: 99a69aa
 
 ## Acceptance criteria
 - `POST /predict` con `sector_empleo` válido responde 200; con sector inválido o sin sector, 422.
