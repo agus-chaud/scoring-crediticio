@@ -30,6 +30,7 @@ from app_core import (
     transition,
     warm_api,
 )
+from explainer import DISCLAIMER, ExplainerReply, answer_question
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 SCORE_ENDPOINT = "/predict"
@@ -51,6 +52,12 @@ BAND_READING = {
 }
 BANDS_LEGEND = "hasta 5% riesgo bajo, entre 5% y 10% riesgo medio, más de 10% riesgo alto"
 PRIMARY = "#1E40AF"
+EXPLAINER_QUESTIONS = (
+    "Explicame esto como si no conociera finanzas.",
+    "¿Qué diferencia hay entre riesgo alto y pérdida alta?",
+    "¿Qué debería verificar antes de usar este resultado?",
+    "¿Cuál métrica está aumentando más la pérdida esperada?",
+)
 
 
 @st.cache_data(show_spinner=False)
@@ -217,6 +224,48 @@ def render_secondary_metrics(result: dict[str, float], spec: dict[str, Any]) -> 
     )
 
 
+def render_explainer_chat(result: dict[str, float]) -> None:
+    """Render a grounded chat whose context is limited to the current score."""
+    st.session_state.setdefault("scoring_explainer_messages", [])
+    messages: list[dict[str, str]] = st.session_state.scoring_explainer_messages
+    with st.container(border=True):
+        st.subheader("Entendé este resultado")
+        st.caption(
+            "El asistente explica sólo las métricas que ves arriba. No recibe los datos personales ni decide créditos."
+        )
+        if st.button("Limpiar conversación", key="clear-scoring-explainer"):
+            st.session_state.scoring_explainer_messages = []
+            st.rerun()
+
+        selected_question: str | None = None
+        quick_actions = st.container(horizontal=True)
+        for index, question in enumerate(EXPLAINER_QUESTIONS):
+            if quick_actions.button(question, key=f"scoring-explainer-question-{index}"):
+                selected_question = question
+
+        for message in messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+
+        typed_question = st.chat_input(
+            "Preguntá sobre este resultado",
+            key="scoring-explainer-input",
+            submit_mode="disable",
+        )
+        question = typed_question or selected_question
+        if question:
+            messages.append({"role": "user", "content": question})
+            with st.chat_message("user"):
+                st.write(question)
+            with st.chat_message("assistant", avatar=":material/psychology:"):
+                reply: ExplainerReply = answer_question(question, result)
+                st.write(reply.content)
+                if reply.mode == "local":
+                    st.caption("Respuesta explicativa local. Configurá `OPENAI_API_KEY` en el servidor para habilitar lenguaje generativo supervisado.")
+            messages.append({"role": "assistant", "content": reply.content})
+        st.caption(DISCLAIMER)
+
+
 def render_scenarios(record: dict[str, Any], spec: dict[str, Any]) -> None:
     st.subheader(spec["copy"]["scenarios_heading"])
     st.caption(spec["scenarios"]["label"])
@@ -278,6 +327,8 @@ def main() -> None:
                     response = score_record(f"{API_BASE_URL.rstrip('/')}{SCORE_ENDPOINT}", record, DEFAULT_TIMEOUT)
             state = transition(state, "success" if response.ok else "error", response, record)
             set_state(state)
+            if response.ok:
+                st.session_state.pop("scoring_explainer_messages", None)
         except ValueError as error:
             state = transition(state, "error", HttpResult(False, error_message=str(error)))
             set_state(state)
@@ -303,6 +354,7 @@ def main() -> None:
             render_gauge(pct, spec)
             render_secondary_metrics(state.last_valid_result, spec)
             st.caption(spec["copy"]["disclaimer"])
+            render_explainer_chat(state.last_valid_result)
             if state.submitted_payload:
                 st.markdown("---")
                 render_scenarios(state.submitted_payload, spec)

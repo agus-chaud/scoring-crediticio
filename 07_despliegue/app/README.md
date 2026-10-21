@@ -29,10 +29,26 @@ The UI defaults to `http://127.0.0.1:8000`. Set `API_BASE_URL` for a deployed AP
 - Preserves the last valid response if a later request fails.
 - Makes one bounded `/health` warm-up and at most one retry for cold-start-type failures.
 - Explores at most six qualifying **ceteris-paribus sensitivity scenarios**. They only lower or preserve `principal` and may change `num_cuotas`; every other raw input (including `imp_cuota`) is fixed.
+- Includes a grounded chat that explains the current PD, EAD, LGD and relative expected loss in plain language. It never scores again, uses no applicant payload or `id_cliente`, and always states that the result is an estimate rather than credit policy.
 
 ## Important limitations
 
 The `≤ 0.05` classification is a configurable demonstrative threshold on relative expected loss. It is uncalibrated and must not be interpreted as an approval, offer, pricing recommendation, financial advice, or production policy. The client intentionally does not normalize `tipo_interes` or `num_cuotas`; it visibly warns when their raw convention can drift from training conventions.
+
+The explainer cannot recommend approval or rejection because the project has no authoritative net margin, default-cost, funding, operating, collection, capital or risk-appetite inputs. It explains that limit rather than inventing a threshold. A future break-even calculation must obtain those values from a reviewed business source.
+
+## Optional LLM configuration and evals
+
+The chat remains usable with deterministic guarded answers when `OPENAI_API_KEY` is absent. To enable the provider-backed explanation, configure `OPENAI_API_KEY` only in the Streamlit server environment or its deployment secret store; never commit it. `OPENAI_MODEL` optionally selects a model and defaults to `gpt-4o-mini`.
+
+The provider receives a sanitized context containing only the four score metrics and fixed policy text. It has no tool access, cannot see the raw loan payload, and its answer falls back to the local explanation unless it repeats the exact metrics, mandatory disclaimer and safety contract.
+
+Regression eval cases live in `evals/scoring_explainer_cases.json`. Run them with:
+
+```powershell
+Set-Location 07_despliegue\app
+..\..\.venv\Scripts\python.exe evals\run_scoring_explainer_evals.py
+```
 
 ## Verification evidence
 
@@ -42,6 +58,7 @@ The `≤ 0.05` classification is a configurable demonstrative threshold on relat
 | Dependencies | `.venv\Scripts\python.exe -m pip check` | Installed environment consistency |
 | Mocked | `.venv\Scripts\python.exe -m unittest discover -s 07_despliegue\app\tests -v` | Pure core and HTTP boundary behavior |
 | AppTest | `.venv\Scripts\python.exe -m unittest discover -s 07_despliegue\app\tests -p test_app.py -v` | Streamlit rendering smoke only |
+| Explainer evals | `.venv\Scripts\python.exe 07_despliegue\app\evals\run_scoring_explainer_evals.py` | Grounding, no-decision boundary and four named questions; calls the provider only if its server key is configured |
 | Live (optional) | `Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/predict -ContentType application/json -InFile 07_despliegue/api/test_payload.json` | Requires a running local API |
 | Manual | Check 375, 768, 1024, and 1440px with keyboard-only traversal | Responsive/accessibility evidence; not automated |
 

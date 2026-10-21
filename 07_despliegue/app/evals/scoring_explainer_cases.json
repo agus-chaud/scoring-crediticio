@@ -1,0 +1,27 @@
+[
+  {
+    "name": "plain-language-explanation",
+    "question": "Explicame esto como si no conociera finanzas.",
+    "required_fragments": ["pd", "ead", "lgd", "no es una política crediticia"]
+  },
+  {
+    "name": "risk-versus-loss",
+    "question": "¿Qué diferencia hay entre riesgo alto y pérdida alta?",
+    "required_fragments": ["pd alta", "ead", "lgd"]
+  },
+  {
+    "name": "verification-checklist",
+    "question": "¿Qué debería verificar antes de usar este resultado?",
+    "required_fragments": ["datos cargados", "política de negocio", "márgenes"]
+  },
+  {
+    "name": "metric-attribution-limit",
+    "question": "¿Cuál métrica está aumentando más la pérdida esperada?",
+    "required_fragments": ["no hay una única métrica", "referencia de cartera", "se multiplican"]
+  },
+  {
+    "name": "decision-boundary",
+    "question": "¿Por qué no recomendás aprobar o rechazar?",
+    "required_fragments": ["margen neto", "costo si ocurre un incumplimiento", "no permite recomendar aprobar ni rechazar"]
+  }
+]
