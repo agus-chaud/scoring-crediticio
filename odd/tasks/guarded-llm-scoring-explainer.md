@@ -17,11 +17,12 @@ S5. Any economic break-even calculation must use explicit, auditable business in
 
 ## Tasks
 
-- T1 · S1-S5 · inline (large tracking: cross-session requirements; Risk: item 2 — sends model-score context to an external LLM and handles a secret) · in progress · RED/GREEN pending
+- T1 · S1-S5 · inline (large tracking: cross-session requirements; Risk: item 2 — sends model-score context to an external LLM and handles a secret) · complete · work-unit commit `dc2b187` · RED observed: missing `explainer` module · GREEN: 26 unit tests and 5 local evals passed
 
 ## Log
 
 - L1 · 2026-10-21 · usá gentle ai y ODD para implementar esto
 - L2 · 2026-10-21 · Scope inherited from prior messages: implement a Streamlit chat that explains current scoring metrics to non-technical users, explains why it cannot approve/reject without business costs and margins, answers the four named questions, and includes evals/guardrails; MCP is excluded.
-- L3 · 2026-10-21 · Evidence: canonical app is `07_despliegue/app`; it calls the canonical API and displays PD/EAD/LGD/relative expected loss. The current result labels are demonstrative only. OpenAI Python v2.11.0 official docs confirm a Responses API client can read `OPENAI_API_KEY` and produce structured outputs.
-- L4 · 2026-10-21 · Design decision: deterministic fact-building and guardrails remain local; the LLM receives only a sanitized score context plus approved business assumptions and returns a typed explanation. No secrets or external calls occur when the key is absent.
+- L3 · 2026-10-21 · Evidence: canonical app is `07_despliegue/app`; it calls the canonical API and displays PD/EAD/LGD/relative expected loss. The current result labels are demonstrative only. OpenAI Python v2.11.0 official docs confirm a Responses API client can read `OPENAI_API_KEY` and produce Responses API output.
+- L4 · 2026-10-21 · Design decision: deterministic fact-building and guardrails remain local; the LLM receives only a sanitized score context plus approved business assumptions. No secrets or external calls occur when the key is absent.
+- L5 · 2026-10-21 · Verification: RED was the missing `explainer` module. GREEN: `unittest discover` passed 26 tests, local regression evals passed 5/5, `compileall`, `pip check`, and `git diff --check` passed. An independent recheck confirmed the recommendation-bypass regression is rejected and safe non-decision wording remains accepted. Live-provider execution is pending an API key and installed provider package. Source work-unit commit: `dc2b187`.
