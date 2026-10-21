@@ -5,6 +5,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -14,6 +15,7 @@ from explainer import (  # type: ignore[import-not-found]
     deterministic_answer,
     answer_question,
     evaluate_answer_contract,
+    load_local_env,
     load_eval_cases,
 )
 
@@ -29,6 +31,20 @@ EVAL_CASES = Path(__file__).resolve().parents[1] / "evals" / "scoring_explainer_
 
 
 class ExplainerTests(unittest.TestCase):
+    @patch("explainer.dotenv_values", return_value={"ANTHROPIC_API_KEY": "local-key", "ANTHROPIC_MODEL": "local-model"})
+    def test_loads_nonempty_app_env_values_without_replacing_server_values(self, mock_dotenv_values: object) -> None:
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "   ", "ANTHROPIC_MODEL": "   "}, clear=True):
+            load_local_env()
+            self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "local-key")
+            self.assertEqual(os.environ["ANTHROPIC_MODEL"], "local-model")
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "server-key", "ANTHROPIC_MODEL": "server-model"}, clear=True):
+            load_local_env()
+            self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "server-key")
+            self.assertEqual(os.environ["ANTHROPIC_MODEL"], "server-model")
+
+        mock_dotenv_values.assert_called_with(Path(__file__).resolve().parents[1] / ".env")
+
     def test_context_contains_only_scores_and_the_decision_boundary(self) -> None:
         context = build_explainer_context(SCORE)
         self.assertEqual(context["metrics"], SCORE)
@@ -72,24 +88,84 @@ class ExplainerTests(unittest.TestCase):
         for attempt in attempts:
             self.assertFalse(evaluate_answer_contract(attempt, SCORE).valid)
 
-    def test_unsafe_provider_answer_falls_back_to_the_local_explanation(self) -> None:
-        class FakeResponses:
+    def test_unsafe_anthropic_answer_falls_back_to_the_local_explanation(self) -> None:
+        class FakeMessages:
+            calls = 0
+
             @staticmethod
             def create(**_: object) -> object:
-                return type("Response", (), {"output_text": "Recomiendo aprobar este crédito. " + deterministic_answer("Explicame esto", SCORE)})()
+                FakeMessages.calls += 1
+                text = "Recomiendo aprobar este crédito. " + deterministic_answer("Explicame esto", SCORE)
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": text})()]})()
 
-        fake_client = type("FakeClient", (), {"responses": FakeResponses()})()
-        previous_key = os.environ.get("OPENAI_API_KEY")
-        os.environ["OPENAI_API_KEY"] = "test-key"
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        previous_key = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "test-key"
         try:
             reply = answer_question("Explicame esto", SCORE, client=fake_client)
         finally:
             if previous_key is None:
-                del os.environ["OPENAI_API_KEY"]
+                del os.environ["ANTHROPIC_API_KEY"]
             else:
-                os.environ["OPENAI_API_KEY"] = previous_key
+                os.environ["ANTHROPIC_API_KEY"] = previous_key
         self.assertEqual(reply.mode, "local")
         self.assertNotIn("Recomiendo aprobar", reply.content)
+        self.assertEqual(FakeMessages.calls, 1)
+
+    def test_provider_answer_without_disclaimer_is_repaired_before_validation(self) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                text = "El resultado reúne tres medidas que conviene revisar juntas antes de sacar conclusiones."
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": text})()]})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        previous_key = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "test-key"
+        try:
+            reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        finally:
+            if previous_key is None:
+                del os.environ["ANTHROPIC_API_KEY"]
+            else:
+                os.environ["ANTHROPIC_API_KEY"] = previous_key
+        self.assertEqual(reply.mode, "llm")
+        self.assertTrue(reply.content.endswith(DISCLAIMER))
+        self.assertIn("20,0%", reply.content)
+
+    def test_provider_metric_drift_falls_back_before_metrics_are_appended(self) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": "La PD es 80,0%."})()]})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        previous_key = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "test-key"
+        try:
+            reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        finally:
+            if previous_key is None:
+                del os.environ["ANTHROPIC_API_KEY"]
+            else:
+                os.environ["ANTHROPIC_API_KEY"] = previous_key
+        self.assertEqual(reply.mode, "local")
+
+    @patch("explainer.load_local_env")
+    def test_openai_key_does_not_enable_the_anthropic_provider(self, _: object) -> None:
+        previous_anthropic_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+        previous_openai_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "legacy-key"
+        try:
+            reply = answer_question("Explicame esto", SCORE)
+        finally:
+            if previous_anthropic_key is not None:
+                os.environ["ANTHROPIC_API_KEY"] = previous_anthropic_key
+            if previous_openai_key is None:
+                del os.environ["OPENAI_API_KEY"]
+            else:
+                os.environ["OPENAI_API_KEY"] = previous_openai_key
+        self.assertEqual(reply.mode, "local")
 
     def test_eval_cases_are_a_valid_regression_suite(self) -> None:
         cases = load_eval_cases(EVAL_CASES)

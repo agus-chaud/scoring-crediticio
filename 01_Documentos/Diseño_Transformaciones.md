@@ -60,3 +60,9 @@ Filas preservadas, target alineada por `id_cliente`, sin variables originales ni
 - **Colinealidad:** en el tablón transformado, `oe__rating` vs `ss__tipo_interes` tienen correlación 0,95 y `yj__principal` vs `yj__imp_cuota`, 0,97. Con Ridge, los coeficientes de `rating` y `tipo_interes` salen los dos positivos (con el diseño anterior, `tipo_interes` salía negativo), pero aportan casi la misma información: la fase de selección de variables debería quedarse con una de cada par.
 - **Valores extremos bajos en `yj__ingresos`** (mínimo −9,3, por ingresos iguales a 0): son pocos casos, conviene revisarlos en calidad.
 - **Sincronía con producción:** `07_despliegue/01_reentrenamiento.py` replica este diseño desde el artefacto 1.2.0 (con `sector_empleo` desde el 1.3.0; desde el 2.0.0 la API recibe el sector y no el título de empleo). Cualquier cambio en esta matriz se tiene que aplicar en los dos lugares.
+
+## Límite de alcance: explicador LLM
+
+El chat explicador de `07_despliegue/app` no participa de la transformación, el entrenamiento ni el artefacto `preprocesador.joblib`. Recibe únicamente las cuatro métricas ya calculadas (PD, EAD, LGD y pérdida esperada relativa) y nunca datos crudos del solicitante ni `id_cliente`.
+
+La versión vigente usa Anthropic si existe `ANTHROPIC_API_KEY`; sin esa variable usa respuestas locales deterministas. El proveedor recibe solo las cuatro métricas calculadas y su respuesta pasa por los mismos evals y guardrails locales. Ver [DEC-014](../decisions.md#dec-014-proveedor-anthropic-y-secretos-del-chat-explicador).

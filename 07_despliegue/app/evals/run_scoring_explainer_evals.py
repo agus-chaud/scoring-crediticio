@@ -1,6 +1,6 @@
 """Run regression evals for the scoring explainer.
 
-With OPENAI_API_KEY configured, this evaluates the provider-backed path. Without
+With ANTHROPIC_API_KEY configured, this evaluates the provider-backed path. Without
 it, it evaluates the deterministic safe fallback so the suite is runnable in CI.
 """
 

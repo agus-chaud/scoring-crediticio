@@ -85,6 +85,10 @@ def inject_styles() -> None:
     .result-reading { font-size: .9rem; opacity: .95; margin-top: .5rem; }
     .result-note { font-size: .82rem; opacity: .78; margin-top: .7rem; }
     .risk-empty { background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 14px; padding: 2rem 1.5rem; color: #475569; text-align: center; }
+    [data-testid="stPopover"] { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 1000; }
+    [data-testid="stPopover"] > button { background: #1E40AF; border: 0; border-radius: 999px; box-shadow: 0 8px 22px rgba(15,23,42,.22); color: #FFFFFF; min-height: 3.5rem; min-width: 3.5rem; padding: .7rem; }
+    [data-testid="stPopover"] > button:hover { background: #1D4ED8; color: #FFFFFF; }
+    [data-testid="stPopoverBody"] { width: min(28rem, calc(100vw - 2rem)); max-height: min(38rem, calc(100vh - 7rem)); overflow-y: auto; }
     button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible, [role="slider"]:focus-visible { outline: 3px solid #1E40AF !important; outline-offset: 2px; }
     @media (max-width: 900px) {
       [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
@@ -228,10 +232,10 @@ def render_explainer_chat(result: dict[str, float]) -> None:
     """Render a grounded chat whose context is limited to the current score."""
     st.session_state.setdefault("scoring_explainer_messages", [])
     messages: list[dict[str, str]] = st.session_state.scoring_explainer_messages
-    with st.container(border=True):
+    with st.popover("💬", help="Abrir asistente explicador", width="content"):
         st.subheader("Entendé este resultado")
         st.caption(
-            "El asistente explica sólo las métricas que ves arriba. No recibe los datos personales ni decide créditos."
+            "El asistente explica sólo las métricas calculadas para este resultado. No recibe los datos personales ni decide créditos."
         )
         if st.button("Limpiar conversación", key="clear-scoring-explainer"):
             st.session_state.scoring_explainer_messages = []
@@ -261,7 +265,7 @@ def render_explainer_chat(result: dict[str, float]) -> None:
                 reply: ExplainerReply = answer_question(question, result)
                 st.write(reply.content)
                 if reply.mode == "local":
-                    st.caption("Respuesta explicativa local. Configurá `OPENAI_API_KEY` en el servidor para habilitar lenguaje generativo supervisado.")
+                    st.caption("Respuesta explicativa local. Revisá `07_despliegue/app/.env`, la conexión a Anthropic y el modelo configurado.")
             messages.append({"role": "assistant", "content": reply.content})
         st.caption(DISCLAIMER)
 
@@ -354,13 +358,15 @@ def main() -> None:
             render_gauge(pct, spec)
             render_secondary_metrics(state.last_valid_result, spec)
             st.caption(spec["copy"]["disclaimer"])
-            render_explainer_chat(state.last_valid_result)
             if state.submitted_payload:
                 st.markdown("---")
                 render_scenarios(state.submitted_payload, spec)
 
     if DEBUG_MODE and state.error_message:
         st.code(state.error_message, language="text")
+
+    if state.last_valid_result:
+        render_explainer_chat(state.last_valid_result)
 
 
 if __name__ == "__main__":

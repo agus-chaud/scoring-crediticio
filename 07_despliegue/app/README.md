@@ -39,9 +39,16 @@ The explainer cannot recommend approval or rejection because the project has no 
 
 ## Optional LLM configuration and evals
 
-The chat remains usable with deterministic guarded answers when `OPENAI_API_KEY` is absent. To enable the provider-backed explanation, configure `OPENAI_API_KEY` only in the Streamlit server environment or its deployment secret store; never commit it. `OPENAI_MODEL` optionally selects a model and defaults to `gpt-4o-mini`.
+The chat remains usable with deterministic guarded answers when `ANTHROPIC_API_KEY` is absent. To enable the Anthropic-backed explanation locally, write the key in `07_despliegue/app/.env`; the file is ignored by Git and is loaded without overriding server environment values:
 
-The provider receives a sanitized context containing only the four score metrics and fixed policy text. It has no tool access, cannot see the raw loan payload, and its answer falls back to the local explanation unless it repeats the exact metrics, mandatory disclaimer and safety contract.
+```dotenv
+ANTHROPIC_API_KEY=your-key
+ANTHROPIC_MODEL=claude-sonnet-5-5
+```
+
+In deployment, configure the same values in the host's secret store. Never commit the key.
+
+The provider receives a sanitized context containing only the four score metrics and fixed policy text. It has no tool access, cannot see the raw loan payload, and its answer falls back to the local explanation if it violates the safety contract. The application adds the exact metrics and mandatory disclaimer deterministically before validation.
 
 Regression eval cases live in `evals/scoring_explainer_cases.json`. Run them with:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from app_core import AppState
 from streamlit.testing.v1 import AppTest
 
 
@@ -42,6 +43,23 @@ class AppSmokeTests(unittest.TestCase):
         self.assertFalse(app.exception)
         rendered = " ".join(element.value for element in app.markdown)
         self.assertIn("Ajustá los filtros", rendered)
+
+
+    def test_explainer_is_a_floating_popover_after_a_score(self) -> None:
+        app = AppTest.from_file(str(APP_PATH))
+        app.session_state["credit_risk_state"] = AppState(
+            status="success",
+            last_valid_result={
+                "score_pd": 0.062,
+                "score_ead": 0.537,
+                "score_lgd": 0.886,
+                "perdida_esperada_relativa": 0.03,
+            },
+        )
+        app.run()
+        self.assertFalse(app.exception)
+        self.assertEqual(len(app.get("popover")), 1)
+        self.assertEqual(len(app.chat_input), 1)
 
 
 if __name__ == "__main__":

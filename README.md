@@ -185,3 +185,14 @@ En Linux/macOS: `source .venv/bin/activate` y `/` en lugar de `\`.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento; si un cliente tiene varios préstamos, la validación puede ser algo optimista.
 - **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros`. El dashboard ya no fija el sector: lo elige quien usa el selector, y el mapeo de un título a un sector queda del lado del cliente.
 - **Uso responsable.** El dashboard es demostrativo: no es aprobación, denegación, oferta ni *pricing*. EAD y LGD son proporciones condicionadas al impago, no montos absolutos. No subas credenciales ni datos sensibles al repositorio.
+
+## Proveedor LLM y claves
+
+La versión actual del chat explicador usa **Anthropic**: lee `ANTHROPIC_API_KEY` desde el entorno del proceso de Streamlit. No pegues claves en este repositorio, en Markdown, en código ni en Git.
+
+La clave `ANTHROPIC_API_KEY` se configura fuera del repositorio:
+
+- **Local:** `07_despliegue/app/.env`, que ya está ignorado por Git. Escribí `ANTHROPIC_API_KEY=tu_clave` en ese archivo.
+- **Despliegue:** secret/environment variable del proveedor de hosting.
+
+También podés definir `ANTHROPIC_MODEL`; si no lo hacés, la app usa `claude-sonnet-5-5`. El contrato de seguridad se mantiene: solo salen las cuatro métricas sanitizadas, y toda respuesta se valida antes de mostrarse. Ver [DEC-014](decisions.md#dec-014-proveedor-anthropic-y-secretos-del-chat-explicador).

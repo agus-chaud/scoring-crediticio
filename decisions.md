@@ -205,3 +205,15 @@
 **Verificación de la integración:** el notebook 05 ejecuta de punta a punta sin errores y reproduce el experimento: Gini externo 0,4225, error medio por decil 0,0036, diferencia de Gini frente a la lineal +0,0062 (IC95% +0,0037 a +0,0089, 1.000 remuestreos) y ganancia en los 5 folds. Reentrenamiento: PD ROC-AUC 0,7091 en el test interno; EAD (MAE 0,1606) y LGD (MAE 0,0903) no cambian. Validación externa del artefacto 2.1.0 sobre 35.592 préstamos: PD ROC-AUC 0,7119 (con 2.0.0, 0,7087); los informes de `06_resultados/Validacion/` se regeneran con ese valor. `/predict` responde 200 con un sector válido y 422 con uno inválido; los 19 tests de la app pasan.
 
 **Conclusión:** la brecha entre la logística y el EBM era, en buena parte, falta de curvas en cuatro variables. Con splines la logística sube +0,006 de Gini, corrige los extremos de calibración y sigue siendo un modelo simple y explicable. Queda abierta la decisión de si el negocio justifica evaluar el boosting a cambio de la explicación por variable.
+
+## DEC-014: Proveedor Anthropic y secretos del chat explicador
+
+**Área:** despliegue | **Fase:** interfaz Streamlit / explicabilidad | **Fecha:** 2026-10-21 | **Estado:** Vigente
+
+**Decisión:** el chat explicador usa el SDK de Anthropic y solo lee `ANTHROPIC_API_KEY`. La clave no se escribe en el repositorio, en archivos Markdown ni en el código. `ANTHROPIC_MODEL` permite cambiar el modelo sin alterar la aplicación; si no se configura, se usa `claude-sonnet-5-5`.
+
+**Alternativa descartada:** pegar una clave en `README.md`, `decisions.md`, `.streamlit/config.toml` o `requirements.txt`, o conservar dos proveedores activos sin una selección explícita.
+
+**Por qué la descartamos:** expondría un secreto y mantendría una ruta de proveedor sin gobernanza. El código importa `anthropic.Anthropic`, usa `ANTHROPIC_API_KEY` y valida localmente la respuesta antes de mostrarla.
+
+**Conclusión:** para desarrollo local, configurar `ANTHROPIC_API_KEY` en `07_despliegue/app/.env`, archivo ignorado por Git y cargado sin sobrescribir valores del servidor. En despliegue, usar el almacén de secretos del hosting. Sin esa variable, la app conserva el fallback local determinista. Los evals y guardrails se ejecutan sobre ambas rutas.
