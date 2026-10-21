@@ -58,6 +58,10 @@ EXPLAINER_QUESTIONS = (
     "¿Qué debería verificar antes de usar este resultado?",
     "¿Cuál métrica está aumentando más la pérdida esperada?",
 )
+EXPLAINER_FREE_TEXT_HINT = (
+    "✍️ O escribí tu propia pregunta en el campo de abajo: el asistente responde con las mismas reglas de seguridad."
+)
+EXPLAINER_INPUT_PLACEHOLDER = "Escribí tu pregunta sobre este resultado"
 EXPLAINER_UNAVAILABLE_NOTICE = (
     "El asistente generativo no está disponible en este momento, así que se muestra una explicación local validada."
 )
@@ -254,13 +258,14 @@ def render_explainer_chat(result: dict[str, float]) -> None:
         for index, question in enumerate(EXPLAINER_QUESTIONS):
             if quick_actions.button(question, key=f"scoring-explainer-question-{index}"):
                 selected_question = question
+        st.caption(EXPLAINER_FREE_TEXT_HINT)
 
         for message in messages:
             with st.chat_message(message["role"]):
                 st.write(message["content"])
 
         typed_question = st.chat_input(
-            "Preguntá sobre este resultado",
+            EXPLAINER_INPUT_PLACEHOLDER,
             key="scoring-explainer-input",
             submit_mode="disable",
         )

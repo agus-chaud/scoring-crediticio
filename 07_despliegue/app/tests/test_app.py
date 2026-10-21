@@ -67,6 +67,17 @@ class AppSmokeTests(unittest.TestCase):
         self.assertEqual(len(app.get("popover")), 1)
         self.assertEqual(len(app.chat_input), 1)
 
+    def test_explainer_tells_users_they_can_type_their_own_question(self) -> None:
+        app = AppTest.from_file(str(APP_PATH))
+        app.session_state["credit_risk_state"] = AppState(status="success", last_valid_result=RESULT)
+        app.run()
+        self.assertFalse(app.exception)
+        captions = " ".join(caption.value for caption in app.caption)
+        self.assertIn("escribí tu propia pregunta", captions.lower())
+        self.assertEqual(app.chat_input[0].placeholder, "Escribí tu pregunta sobre este resultado")
+        quick_questions = [button.label for button in app.button if button.label.endswith(("?", "."))]
+        self.assertEqual(len(quick_questions), 4)
+
     def _ask_with_local_reply(self, fallback_reason: str) -> AppTest:
         reply = ExplainerReply(deterministic_answer("Explicame esto", RESULT), "local", fallback_reason)
         app = AppTest.from_file(str(APP_PATH))
