@@ -50,6 +50,17 @@ In deployment, configure the same values in the host's secret store. Never commi
 
 The provider receives a sanitized context containing only the four score metrics and fixed policy text. It has no tool access, cannot see the raw loan payload, and its answer falls back to the local explanation if it violates the safety contract. The application adds the exact metrics and mandatory disclaimer deterministically before validation.
 
+Every local fallback carries a `fallback_reason` and writes one `WARNING` line from the `explainer` logger to the Streamlit server output (exception class, HTTP status and model only; never the key or the payload):
+
+| `fallback_reason` | Cause | Notice shown to the user |
+|---|---|---|
+| `not_configured` | `ANTHROPIC_API_KEY` missing or blank | Generative assistant unavailable; validated local explanation shown |
+| `provider_error` | Network, authentication, model or SDK error | Generative assistant unavailable; validated local explanation shown |
+| `incomplete` | Provider stopped with `stop_reason` `max_tokens` (truncated answer) or `refusal` | Generative assistant unavailable; validated local explanation shown |
+| `guardrail` | Generated percentage, credit recommendation, amount or economic assumption | Generative explanation could not be used safely; validated local explanation shown |
+
+Set `DEBUG_MODE=true` to also show the reason code in the chat. If Streamlit is launched from a sandboxed agent shell with outbound network disabled (for example `CODEX_SANDBOX_NETWORK_DISABLED=1`), every question ends in `provider_error` even with a valid key: start Streamlit from a regular terminal.
+
 Regression eval cases live in `evals/scoring_explainer_cases.json`. Run them with:
 
 ```powershell

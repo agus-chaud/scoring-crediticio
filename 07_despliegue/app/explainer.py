@@ -8,6 +8,7 @@ LLM can only phrase a grounded explanation, never calculate or decide credit.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -18,6 +19,14 @@ from dotenv import dotenv_values
 
 from app_core import ScoreResult
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_MODEL = "claude-sonnet-5-5"
+MAX_OUTPUT_TOKENS = 16000
+FALLBACK_NOT_CONFIGURED = "not_configured"
+FALLBACK_PROVIDER_ERROR = "provider_error"
+FALLBACK_INCOMPLETE = "incomplete"
+FALLBACK_GUARDRAIL = "guardrail"
 DISCLAIMER = (
     "Esta es una estimación analítica del modelo; no es una política crediticia, "
     "una oferta ni una decisión automática de aprobación o rechazo."
@@ -54,6 +63,7 @@ class ContractVerdict:
 class ExplainerReply:
     content: str
     mode: str
+    fallback_reason: str | None = None
 
 
 def load_local_env() -> None:
@@ -176,12 +186,22 @@ def load_eval_cases(path: Path) -> list[dict[str, Any]]:
     return cases
 
 
+def _local_reply(question: str, result: Mapping[str, float], fallback_reason: str) -> ExplainerReply:
+    return ExplainerReply(deterministic_answer(question, result), "local", fallback_reason)
+
+
 def answer_question(question: str, result: Mapping[str, float], *, model: str | None = None, client: Any | None = None) -> ExplainerReply:
-    """Use Anthropic only when configured; otherwise remain fully functional and local."""
+    """Use Anthropic only when configured; otherwise remain fully functional and local.
+
+    Every local fallback carries a reason code and a technical log line so that
+    configuration, connectivity, and guardrail rejections remain distinguishable.
+    """
     load_local_env()
     api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
-        return ExplainerReply(deterministic_answer(question, result), "local")
+        logger.warning("Explainer fallback=%s: ANTHROPIC_API_KEY is not configured.", FALLBACK_NOT_CONFIGURED)
+        return _local_reply(question, result, FALLBACK_NOT_CONFIGURED)
+    model_name = model or (os.getenv("ANTHROPIC_MODEL") or "").strip() or DEFAULT_MODEL
     try:
         if client is None:
             from anthropic import Anthropic
@@ -189,9 +209,12 @@ def answer_question(question: str, result: Mapping[str, float], *, model: str | 
             client = Anthropic(api_key=api_key)
 
         context = build_explainer_context(result)
+        # Adaptive thinking is on by default and shares the max_tokens ceiling with the answer,
+        # so low effort keeps the reply short and the ceiling leaves room for both.
         response = client.messages.create(
-            model=model or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
-            max_tokens=700,
+            model=model_name,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            output_config={"effort": "low"},
             system=SYSTEM_INSTRUCTIONS,
             messages=[
                 {
@@ -207,11 +230,26 @@ def answer_question(question: str, result: Mapping[str, float], *, model: str | 
         answer = "\n".join(
             block.text for block in response.content if getattr(block, "type", None) == "text"
         ).strip()
-        if PERCENTAGE.search(answer):
-            return ExplainerReply(deterministic_answer(question, result), "local")
-        answer = f"{answer}\n\n{_metrics_summary(result)}\n\n{DISCLAIMER}"
-        if evaluate_answer_contract(answer, result).valid:
-            return ExplainerReply(answer, "llm")
-    except Exception:
-        pass
-    return ExplainerReply(deterministic_answer(question, result), "local")
+    except Exception as error:
+        # Only the exception class, HTTP status, and model are logged: never the key or the payload.
+        logger.warning(
+            "Explainer fallback=%s: Anthropic request failed (%s, status=%s, model=%s).",
+            FALLBACK_PROVIDER_ERROR,
+            type(error).__name__,
+            getattr(error, "status_code", None),
+            model_name,
+        )
+        return _local_reply(question, result, FALLBACK_PROVIDER_ERROR)
+    stop_reason = getattr(response, "stop_reason", None)
+    if stop_reason in {"max_tokens", "refusal"}:
+        logger.warning("Explainer fallback=%s: provider stopped with stop_reason=%s.", FALLBACK_INCOMPLETE, stop_reason)
+        return _local_reply(question, result, FALLBACK_INCOMPLETE)
+    if PERCENTAGE.search(answer):
+        logger.warning("Explainer fallback=%s: the provider answer contains a percentage.", FALLBACK_GUARDRAIL)
+        return _local_reply(question, result, FALLBACK_GUARDRAIL)
+    answer = f"{answer}\n\n{_metrics_summary(result)}\n\n{DISCLAIMER}"
+    verdict = evaluate_answer_contract(answer, result)
+    if not verdict.valid:
+        logger.warning("Explainer fallback=%s: %s", FALLBACK_GUARDRAIL, verdict.reason)
+        return _local_reply(question, result, FALLBACK_GUARDRAIL)
+    return ExplainerReply(answer, "llm")

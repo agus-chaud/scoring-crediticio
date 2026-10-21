@@ -58,6 +58,14 @@ EXPLAINER_QUESTIONS = (
     "¿Qué debería verificar antes de usar este resultado?",
     "¿Cuál métrica está aumentando más la pérdida esperada?",
 )
+EXPLAINER_UNAVAILABLE_NOTICE = (
+    "El asistente generativo no está disponible en este momento, así que se muestra una explicación local validada."
+)
+EXPLAINER_FALLBACK_NOTICES = {
+    "guardrail": (
+        "La explicación generativa no pudo usarse con seguridad, así que se muestra una explicación local validada."
+    ),
+}
 
 
 @st.cache_data(show_spinner=False)
@@ -85,7 +93,7 @@ def inject_styles() -> None:
     .result-reading { font-size: .9rem; opacity: .95; margin-top: .5rem; }
     .result-note { font-size: .82rem; opacity: .78; margin-top: .7rem; }
     .risk-empty { background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 14px; padding: 2rem 1.5rem; color: #475569; text-align: center; }
-    [data-testid="stPopover"] { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 1000; }
+    [data-testid="stPopover"] { position: fixed; right: 1.5rem; bottom: 1.5rem; left: auto; z-index: 1000; width: auto !important; }
     [data-testid="stPopover"] > button { background: #1E40AF; border: 0; border-radius: 999px; box-shadow: 0 8px 22px rgba(15,23,42,.22); color: #FFFFFF; min-height: 3.5rem; min-width: 3.5rem; padding: .7rem; }
     [data-testid="stPopover"] > button:hover { background: #1D4ED8; color: #FFFFFF; }
     [data-testid="stPopoverBody"] { width: min(28rem, calc(100vw - 2rem)); max-height: min(38rem, calc(100vh - 7rem)); overflow-y: auto; }
@@ -265,7 +273,10 @@ def render_explainer_chat(result: dict[str, float]) -> None:
                 reply: ExplainerReply = answer_question(question, result)
                 st.write(reply.content)
                 if reply.mode == "local":
-                    st.caption("Respuesta explicativa local. Revisá `07_despliegue/app/.env`, la conexión a Anthropic y el modelo configurado.")
+                    # Technical details stay in the server log written by explainer.answer_question.
+                    st.caption(EXPLAINER_FALLBACK_NOTICES.get(reply.fallback_reason, EXPLAINER_UNAVAILABLE_NOTICE))
+                    if DEBUG_MODE:
+                        st.caption(f"debug: fallback_reason={reply.fallback_reason}")
             messages.append({"role": "assistant", "content": reply.content})
         st.caption(DISCLAIMER)
 

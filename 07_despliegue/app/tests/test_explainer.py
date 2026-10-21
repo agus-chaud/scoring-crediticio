@@ -152,6 +152,106 @@ class ExplainerTests(unittest.TestCase):
         self.assertEqual(reply.mode, "local")
 
     @patch("explainer.load_local_env")
+    def test_provider_connection_failure_is_logged_and_distinguished_from_guardrails(self, _: object) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                raise ConnectionError("network disabled by sandbox")
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key", "ANTHROPIC_MODEL": "test-model"}):
+            with self.assertLogs("explainer", level="WARNING") as logs:
+                reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "local")
+        self.assertEqual(reply.fallback_reason, "provider_error")
+        self.assertIn(DISCLAIMER, reply.content)
+        log_text = "\n".join(logs.output)
+        self.assertIn("ConnectionError", log_text)
+        self.assertIn("test-model", log_text)
+        self.assertNotIn("secret-test-key", log_text)
+
+    @patch("explainer.load_local_env")
+    def test_guardrail_rejection_is_logged_with_its_reason(self, _: object) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                text = "Recomiendo aprobar este crédito porque el riesgo es bajo."
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": text})()]})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key"}):
+            with self.assertLogs("explainer", level="WARNING") as logs:
+                reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "local")
+        self.assertEqual(reply.fallback_reason, "guardrail")
+        self.assertNotIn("Recomiendo aprobar", reply.content)
+        self.assertIn("recomendación crediticia prohibida", "\n".join(logs.output))
+
+    @patch("explainer.load_local_env")
+    def test_generated_percentage_is_reported_as_a_guardrail_fallback(self, _: object) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": "La PD es 80,0%."})()]})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key"}):
+            reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "local")
+        self.assertEqual(reply.fallback_reason, "guardrail")
+
+    @patch("explainer.load_local_env")
+    def test_truncated_provider_answer_is_never_shown(self, _: object) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                text = "El resultado reúne tres medidas que conviene"
+                block = type("TextBlock", (), {"type": "text", "text": text})()
+                return type("Response", (), {"content": [block], "stop_reason": "max_tokens"})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key"}):
+            with self.assertLogs("explainer", level="WARNING") as logs:
+                reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "local")
+        self.assertEqual(reply.fallback_reason, "incomplete")
+        self.assertNotIn("conviene\n", reply.content)
+        self.assertIn("max_tokens", "\n".join(logs.output))
+
+    @patch("explainer.load_local_env")
+    def test_request_leaves_room_for_thinking_and_answer(self, _: object) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeMessages:
+            @staticmethod
+            def create(**kwargs: object) -> object:
+                captured.update(kwargs)
+                text = "El resultado reúne tres medidas que conviene revisar juntas."
+                block = type("TextBlock", (), {"type": "text", "text": text})()
+                return type("Response", (), {"content": [block], "stop_reason": "end_turn"})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key"}):
+            reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "llm")
+        self.assertGreaterEqual(captured["max_tokens"], 4000)
+        self.assertEqual(captured["output_config"], {"effort": "low"})
+
+    @patch("explainer.load_local_env")
+    def test_valid_provider_answer_has_no_fallback_reason(self, _: object) -> None:
+        class FakeMessages:
+            @staticmethod
+            def create(**_: object) -> object:
+                text = "El resultado reúne tres medidas que conviene revisar juntas."
+                return type("Response", (), {"content": [type("TextBlock", (), {"type": "text", "text": text})()]})()
+
+        fake_client = type("FakeClient", (), {"messages": FakeMessages()})()
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-test-key"}):
+            reply = answer_question("Explicame esto", SCORE, client=fake_client)
+        self.assertEqual(reply.mode, "llm")
+        self.assertIsNone(reply.fallback_reason)
+
+    @patch("explainer.load_local_env")
     def test_openai_key_does_not_enable_the_anthropic_provider(self, _: object) -> None:
         previous_anthropic_key = os.environ.pop("ANTHROPIC_API_KEY", None)
         previous_openai_key = os.environ.get("OPENAI_API_KEY")
@@ -166,6 +266,7 @@ class ExplainerTests(unittest.TestCase):
             else:
                 os.environ["OPENAI_API_KEY"] = previous_openai_key
         self.assertEqual(reply.mode, "local")
+        self.assertEqual(reply.fallback_reason, "not_configured")
 
     def test_eval_cases_are_a_valid_regression_suite(self) -> None:
         cases = load_eval_cases(EVAL_CASES)

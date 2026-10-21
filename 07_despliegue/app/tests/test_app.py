@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app_core import AppState
+from explainer import ExplainerReply, deterministic_answer
 from streamlit.testing.v1 import AppTest
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+RESULT = {"score_pd": 0.062, "score_ead": 0.537, "score_lgd": 0.886, "perdida_esperada_relativa": 0.03}
 
 
 class AppSmokeTests(unittest.TestCase):
@@ -60,6 +66,30 @@ class AppSmokeTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual(len(app.get("popover")), 1)
         self.assertEqual(len(app.chat_input), 1)
+
+    def _ask_with_local_reply(self, fallback_reason: str) -> AppTest:
+        reply = ExplainerReply(deterministic_answer("Explicame esto", RESULT), "local", fallback_reason)
+        app = AppTest.from_file(str(APP_PATH))
+        app.session_state["credit_risk_state"] = AppState(status="success", last_valid_result=RESULT)
+        with patch("explainer.answer_question", return_value=reply):
+            app.run()
+            next(button for button in app.button if "conociera" in button.label).click().run()
+        self.assertFalse(app.exception)
+        return app
+
+    def test_guardrail_fallback_shows_a_plain_language_notice(self) -> None:
+        captions = " ".join(caption.value for caption in self._ask_with_local_reply("guardrail").caption)
+        self.assertIn("no pudo usarse con seguridad", captions)
+        self.assertIn("explicación local validada", captions)
+        self.assertNotIn(".env", captions)
+        self.assertNotIn("Anthropic", captions)
+
+    def test_provider_failure_shows_a_plain_language_notice(self) -> None:
+        captions = " ".join(caption.value for caption in self._ask_with_local_reply("provider_error").caption)
+        self.assertIn("no está disponible", captions)
+        self.assertIn("explicación local validada", captions)
+        self.assertNotIn(".env", captions)
+        self.assertNotIn("Anthropic", captions)
 
 
 if __name__ == "__main__":
