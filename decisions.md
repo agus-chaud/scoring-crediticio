@@ -165,6 +165,8 @@
 
 **Área:** modelado | **Fase:** A_05 Modelización PD | **Fecha:** 2026-10-06 | **Estado:** Vigente
 
+> Nota: DEC-015 aporta evidencia de validación cruzada sobre la alternativa B (gradient boosting): XGBoost y LightGBM ajustados no superan a las splines. La decisión de esta entrada no cambia.
+
 **Decisión:** usar para la PD la regresión logística Ridge con `SplineTransformer(degree=3, knots='quantile', include_bias=False, n_knots=8)` aplicado, dentro del `Pipeline` y después del preprocesador, a `yj__principal`, `yj__dti`, `yj__imp_cuota` y `ss__tipo_interes`; `C≈0,316`, `l1_ratio=0`. Producción (`07_despliegue/01_reentrenamiento.py`, función `make_pd_pipeline`) fija `n_knots=8` y `C=10**-0.5` sin repetir la búsqueda: artefacto 2.1.0 (antes 2.0.0), con el contrato de la API sin cambios. El notebook 05 incorpora la sección "Challenger: regresión logística con splines" y evalúa el modelo final con los gráficos de reporting; la logística lineal de DEC-008 queda como baseline (`modelo`, `pred_val_lineal`). No reemplazar la logística por un Explainable Boosting Machine (EBM).
 
 **Por qué:** la logística lineal sobreestimaba la PD en los extremos de riesgo. En validación externa, el decil de menor riesgo tenía PD media 6,1% frente a una tasa real de 4,6%, y el de mayor riesgo 47,6% frente a 44,6%. Un EBM entrenado como challenger mostró que `tipo_interes` (R² lineal 0,76), `dti` (0,75), `imp_cuota` (0,52) y `principal` (0,40) tienen efectos no lineales; `rating`, `ingresos` y `num_lineas_credito` son casi lineales (R² 0,90 a 0,97). Las interacciones del EBM suman solo ~4% de la importancia total (0,071 de 1,69), así que la ganancia viene de las curvas por variable, no de interacciones.
@@ -217,3 +219,51 @@
 **Por qué la descartamos:** expondría un secreto y mantendría una ruta de proveedor sin gobernanza. El código importa `anthropic.Anthropic`, usa `ANTHROPIC_API_KEY` y valida localmente la respuesta antes de mostrarla.
 
 **Conclusión:** para desarrollo local, configurar `ANTHROPIC_API_KEY` en `07_despliegue/app/.env`, archivo ignorado por Git y cargado sin sobrescribir valores del servidor. En despliegue, usar el almacén de secretos del hosting. Sin esa variable, la app conserva el fallback local determinista. Los evals y guardrails se ejecutan sobre ambas rutas.
+
+## DEC-015: XGBoost y LightGBM ajustados no reemplazan a la logística con splines en la PD
+
+**Área:** modelado | **Fase:** A_05_1 Modelización PD challengers | **Fecha:** 2026-10-22 | **Estado:** Vigente
+
+**Decisión:** mantener la regresión logística Ridge con splines de DEC-013 como modelo de PD. XGBoost y LightGBM, ajustados con validación cruzada y regularización, no la superan. El artefacto 2.1.0 y el contrato de la API no cambian. `xgboost` y `lightgbm` solo se usan en el notebook `05_1_Modelizacion PD challengers.ipynb`; no se agregan a producción.
+
+**Por qué:** DEC-013 dejó abierta la alternativa B (gradient boosting) con un boosting sin ajustar. Se probó con los mismos datos, partición 70/30 (`random_state=42`), preprocesador clonado dentro de la validación cruzada y los mismos 5 folds estratificados que el baseline, de modo que la comparación es fold a fold. El test interno y la validación externa no se usaron.
+
+**Procedimiento:**
+1. **Curvas de validación** (3 folds, 300 árboles, `learning_rate=0,05`, un solo hiperparámetro de complejidad por vez). Con más complejidad el AUC de train sube y el de CV baja; el máximo de CV está en el valor más simple probado:
+
+| Modelo | Complejidad | AUC train | AUC CV | Gap |
+|---|---|---|---|---|
+| XGBoost | `max_depth=2` | 0,7189 | 0,7090 | 0,0099 |
+| XGBoost | `max_depth=8` | 0,9315 | 0,6950 | 0,2364 |
+| LightGBM | `num_leaves=4` | 0,7209 | 0,7086 | 0,0123 |
+| LightGBM | `num_leaves=127` | 0,9757 | 0,6914 | 0,2843 |
+
+2. **Búsqueda** con `RandomizedSearchCV` (40 candidatos por modelo, 5 folds, `scoring='roc_auc'`, `random_state=42`, `return_train_score=True`; unos 16 minutos en total). El espacio se recortó a la zona simple (`max_depth` de 1 a 4, `num_leaves` de 2 a 16) y suma regularización: mínimo de datos por hoja (`min_child_weight` o `min_child_samples`), `reg_lambda`, `reg_alpha`, `gamma` o `min_split_gain`, `subsample`, `colsample_bytree`, además de `n_estimators` y `learning_rate`.
+3. **Selección con la regla del error estándar:** el mejor AUC medio de CV fue 0,7106 en los dos modelos, con error estándar 0,0025 (19 candidatos de XGBoost y 28 de LightGBM quedaron dentro de ese margen). Entre ellos se eligió el de menor gap train-CV.
+
+**Resultados** (validación cruzada sobre train, 5 folds):
+
+| Modelo | AUC CV | Gap train-CV | Brier | Log loss | PR-AUC | Dif. de AUC vs splines por fold | Folds ganados |
+|---|---|---|---|---|---|---|---|
+| Logística + splines (DEC-013) | 0,7098 | 0,0025 | 0,1449 | 0,4536 | 0,3714 | n/a | n/a |
+| XGBoost (`max_depth=1`, 275 árboles, `learning_rate≈0,071`) | 0,7082 | 0,0031 | 0,1452 | 0,4544 | 0,3695 | −0,0016 (desvío 0,0010) | 0 de 5 |
+| LightGBM (`num_leaves=4`, 324 árboles, `learning_rate≈0,032`, `min_child_samples=668`) | 0,7091 | 0,0056 | 0,1450 | 0,4539 | 0,3698 | −0,0007 (desvío 0,0010) | 1 de 5 |
+
+- Ninguno cumple la vara fijada en el notebook: AUC CV mayor que 0,7098 sin empeorar el Brier ni el log loss.
+- La regularización y la zona acotada eliminaron el sobreajuste (gap de 0,24 y 0,28 en los extremos del probe contra 0,003 y 0,006), pero no mejoraron el ordenamiento.
+- Hipótesis, sin verificar: con `max_depth=1` XGBoost es un modelo aditivo, como las splines; la búsqueda converge ahí porque el tablón no tendría interacciones útiles. Es coherente con las interacciones del EBM de DEC-013, que suman solo ~4% de la importancia.
+- Comprobación puntual fuera del notebook: un `HistGradientBoostingClassifier` con valores por defecto, en el mismo pipeline y los mismos folds, da AUC CV 0,7065 (train 0,757).
+
+**Alternativas descartadas:**
+- **A. Adoptar XGBoost o LightGBM como modelo de PD.** No mejoran el AUC de CV, empeoran levemente el Brier y el log loss, pierden la explicación por variable y agregarían dependencias a producción.
+- **B. Ampliar la búsqueda hacia árboles más profundos.** Las curvas de validación muestran que el AUC de CV baja al complejizar.
+- **C. Optuna u otra búsqueda bayesiana.** No está instalada en el entorno y agregaría una dependencia; con el espacio ya acotado, `RandomizedSearchCV` de scikit-learn alcanza.
+
+**Límites de la evidencia:**
+- Solo validación cruzada sobre train, una partición y 40 candidatos por modelo. Los candidatos no se evaluaron en el test interno ni en la validación externa.
+- El mejor AUC de 40 intentos sobre los mismos folds está inflado por selección (0,7106 en la búsqueda); por eso la comparación se hace con los folds de la configuración elegida. La regla del error estándar trata los folds como independientes, que es solo una aproximación.
+- El probe varía un hiperparámetro por vez, con 300 árboles y `learning_rate` fijos; `n_estimators` se busca junto con `learning_rate` y no se usó parada temprana. `max_depth=1` es el borde inferior del espacio de XGBoost.
+- **Discrepancia abierta con DEC-013.** Allí un `HistGradientBoostingClassifier` sin ajustar da +0,037 de Gini externo sobre la logística, pero en validación cruzada ese modelo da AUC 0,7065, por debajo de las splines. No se sabe a qué se debe. Hipótesis sin verificar: 41.895 `id_cliente` de validación aparecen también en entrenamiento, lo que podría favorecer a un modelo de más capacidad. Falta comparar ambos modelos sobre la validación externa excluyendo esos clientes.
+- La ejecución completa del notebook terminó con un `KeyError` de limpieza de la carpeta temporal de joblib en Windows; los resultados salieron completos.
+
+**Conclusión:** con las variables actuales, ordenar mejor que las splines no depende de la complejidad del modelo: los árboles regularizados empatan o quedan apenas por debajo, y los profundos memorizan. La decisión del negocio sobre el boosting a cambio de la explicación por variable (DEC-013) deja de tener una ganancia medida en CV que la justifique; queda pendiente aclarar la discrepancia con la validación externa.

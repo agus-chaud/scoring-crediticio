@@ -9,6 +9,7 @@ Diccionario de campos: [`Diccionario.xlsx`](Diccionario.xlsx) · Decisiones téc
 - **PD ordena bien y está calibrada.** AUC **0,711** (Gini 0,42) sobre **35.592** préstamos de validación externa no usados para entrenar; la validación cruzada da 0,710, sin sobreajuste. La PD media predicha es **19,8%** frente a una tasa real de **19,7%**.
 - **Revisar el 20% de mayor PD captura el 40% de los impagos**, el doble que revisar al azar.
 - **Las splines corrigen la PD en los extremos.** La logística lineal predecía 6,1% de PD en el decil de menor riesgo frente a 4,6% real; con splines en 4 variables, 4,2% frente a 4,1%. El error medio por decil baja de 0,0111 a 0,0036 y el Gini externo sube de 0,416 a 0,423.
+- **XGBoost y LightGBM ajustados no superan a la logística con splines.** AUC en validación cruzada: 0,708 y 0,709 contra 0,710, y ninguno gana en más de 1 de 5 folds. Con árboles profundos el AUC de train llega a 0,93–0,98 y el de CV cae a 0,69 (notebook `05_1`, [DEC-015](decisions.md)).
 - **EAD y LGD apenas superan a predecir la mediana.** MAE **0,159 vs 0,177** en EAD (−9,8%) y **0,087 vs 0,088** en LGD (−0,6%). El modelo de LGD asigna casi la misma pérdida (0,88–0,92) a todos los préstamos.
 - **El sector de empleo es la única variable fuera del contrato original que mejora el modelo:** +**0,0036** de AUC en CV. Los clientes sin título de empleo tienen **26,6%** de impago, frente a 14–25% en el resto.
 - **`rating` y `tipo_interes` tienen correlación 0,95** (y `principal`/`imp_cuota`, 0,97): con el escalado anterior el coeficiente de `tipo_interes` salía con el signo invertido.
@@ -35,7 +36,7 @@ Construir un flujo reproducible que reciba 15 variables de un préstamo (14 crud
 2. **Calidad** (`02_Calidad de Datos`): se eliminan ingresos > 400.000, `dti = 999` y préstamos sin desenlace; imputaciones y recortes a límites de negocio.
 3. **EDA** (`03_EDA`): definición de `target_pd` y tasa de impago por variable.
 4. **Transformación** (`04_Transformacion de datos`): targets de EAD y LGD y un `ColumnTransformer` persistido en `05_modelos/preprocesador.joblib`.
-5. **Modelización** (`05`–`07`): PD con regresión logística Ridge con splines; EAD y LGD con `HistGradientBoostingRegressor` entrenado solo sobre impagos.
+5. **Modelización** (`05`–`07`): PD con regresión logística Ridge con splines; EAD y LGD con `HistGradientBoostingRegressor` entrenado solo sobre impagos. El `05_1` prueba XGBoost y LightGBM como challengers de la PD y no los adopta.
 6. **Producción** (`07_despliegue`): `01_reentrenamiento.py` serializa los tres pipelines en `artefacto_pipeline.pkl` → API FastAPI (`POST /predict`) → dashboard Streamlit.
 
 Modelos en producción (artefacto 2.1.0): regresión logística Ridge (`l1_ratio=0`, `C≈0,316`) con splines cúbicas de 8 nudos en `principal`, `dti`, `imp_cuota` y `tipo_interes` para PD, la mejor configuración de la búsqueda del notebook 05 (DEC-013); `HistGradientBoostingRegressor` para EAD y LGD.
@@ -64,7 +65,11 @@ Modelos en producción (artefacto 2.1.0): regresión logística Ridge (`l1_ratio
 
 ### Splines en la regresión logística de PD ([DEC-013](decisions.md))
 
-**Problema:** la logística lineal sobreestimaba la PD en los extremos de riesgo (decil de menor riesgo: 6,1% predicho frente a 4,6% real) y `tipo_interes`, `dti`, `imp_cuota` y `principal` tienen efectos no lineales (R² del ajuste lineal a la curva de un EBM: 0,76, 0,75, 0,52 y 0,40). **Elección:** `SplineTransformer` (grado 3, 8 nudos en cuantiles) sobre esas cuatro variables, dentro del `Pipeline` y con `C≈0,316` fijo en producción. **Descartado:** un EBM como reemplazo (+0,0065 de Gini externo sobre las splines, pero con la dependencia `interpret`, un artefacto de 4,3 MB y 25 a 45 s por ajuste) y gradient boosting (+0,037 de Gini, a costa de la explicación por variable; decisión de riesgo abierta). **Límite:** una sola partición train/test y sin repetir la búsqueda del modelo lineal.
+**Problema:** la logística lineal sobreestimaba la PD en los extremos de riesgo (decil de menor riesgo: 6,1% predicho frente a 4,6% real) y `tipo_interes`, `dti`, `imp_cuota` y `principal` tienen efectos no lineales (R² del ajuste lineal a la curva de un EBM: 0,76, 0,75, 0,52 y 0,40). **Elección:** `SplineTransformer` (grado 3, 8 nudos en cuantiles) sobre esas cuatro variables, dentro del `Pipeline` y con `C≈0,316` fijo en producción. **Descartado:** un EBM como reemplazo (+0,0065 de Gini externo sobre las splines, pero con la dependencia `interpret`, un artefacto de 4,3 MB y 25 a 45 s por ajuste) y gradient boosting (+0,037 de Gini externo con valores por defecto, a costa de la explicación por variable; esa ganancia no se reproduce en validación cruzada, ver DEC-015). **Límite:** una sola partición train/test y sin repetir la búsqueda del modelo lineal.
+
+### XGBoost y LightGBM ajustados contra la logística con splines ([DEC-015](decisions.md))
+
+**Problema:** DEC-013 dejó abierta la pregunta de si un boosting ajustado supera a la logística con splines. **Prueba** (`Notebooks/05_1_Modelizacion PD challengers.ipynb`): curvas de validación de `max_depth` y `num_leaves`, y una búsqueda aleatoria de 40 candidatos por modelo en el rango donde el gap train-CV era chico, con regularización (mínimo de datos por hoja, `reg_lambda`, `reg_alpha`, `gamma`, `subsample`, `colsample_bytree`) y los mismos 5 folds del baseline. Se elige con la regla del error estándar: entre los candidatos a 1 error estándar del mejor, el de menor gap. **Resultado:** AUC CV 0,7082 (XGBoost, `max_depth=1`) y 0,7091 (LightGBM, `num_leaves=4`) contra 0,7098 de las splines; diferencia pareada −0,0016 y −0,0007, con victorias en 0 y 1 de 5 folds; Brier y log loss también quedan apenas peores. **Decisión:** las splines siguen como modelo de PD y el artefacto no cambia. **Límite:** solo se comparó en validación cruzada; el test interno y la validación externa no se usaron con estos modelos.
 
 ### Sin rebalanceo de clases ([DEC-007](decisions.md))
 
@@ -84,6 +89,7 @@ El umbral de pérdida esperada relativa `≤ 0.05` es una referencia visual no c
 | EAD | MAE 0,159 vs 0,177 de la mediana (validación interna) | Mejora 9,8%; las predicciones van de 0,55 a 0,95 y sobrestiman los EAD bajos. |
 | LGD | MAE 0,087 vs 0,088 de la mediana (validación interna) | Mejora 0,6%: con las variables actuales no distingue préstamos. |
 | Splines en la PD | Gini externo 0,416 → 0,423 (IC95% del bootstrap de la diferencia +0,004 a +0,009; gana en 5 de 5 folds); error medio por decil 0,0111 → 0,0036 | Cierra la mitad de la brecha de Gini con un EBM y calibra mejor que él, sin dependencias nuevas (DEC-013). |
+| XGBoost y LightGBM ajustados | AUC CV 0,7082 y 0,7091 contra 0,7098 de las splines; gap train-CV 0,003 y 0,006; ganan en 0 y 1 de 5 folds | No superan a las splines. La búsqueda converge a árboles de profundidad 1 y 4 hojas, es decir, modelos casi aditivos (DEC-015). |
 | Sector de empleo | +0,0036 de AUC en CV; AUC externo 0,705 → 0,708 | Se incorporó al contrato de la API como `sector_empleo` (DEC-012; antes, título crudo). |
 | Variables sin información | `num_meses_desde_ult_retraso`, `num_cancelaciones_12meses`: AUC ≈ 0,50 | Se excluyeron. |
 | Variables con señal redundante | `num_hipotecas`, `porc_tarjetas_75p`, `tiene_descripcion`: AUC ≈ 0,55 solas, +0,0001 a +0,0007 en el modelo | Su información ya está en otras variables; no justifican ampliar el contrato. |
@@ -108,6 +114,7 @@ AA_scoring-crediticio/
 │   ├── 03_EDA.ipynb                      # Target PD y análisis exploratorio
 │   ├── 04_Transformacion de datos.ipynb  # Targets EAD/LGD y preprocesador
 │   ├── 05_Modelizacion Clasificacion PD.ipynb  # Modelo PD, métricas de crédito, validación externa
+│   ├── 05_1_Modelizacion PD challengers.ipynb  # XGBoost y LightGBM contra las splines (no se adoptan)
 │   ├── 06_Modelizacion Regresion EAD.ipynb     # Modelo EAD
 │   ├── 07_Modelizacion Regresion LGD.ipynb     # Modelo LGD
 │   └── 08_Preproduccion.ipynb            # Flujo consolidado
@@ -181,6 +188,7 @@ En Linux/macOS: `source .venv/bin/activate` y `/` en lugar de `\`.
 - **LGD sin poder predictivo.** Mejora 0,6% sobre la mediana. Falta probar otras variables o un enfoque en dos etapas (clasificar si la LGD es 1 y luego regresión para el resto).
 - **Producción desalineada en EAD y LGD.** `01_reentrenamiento.py` y `08_Preproduccion.ipynb` no incorporan las correcciones de [DEC-011](decisions.md).
 - **Sin umbral de decisión.** Falta cuantificar costo de falsos positivos y beneficio de verdaderos positivos para elegir un umbral que maximice el valor esperado.
+- **Boosting: dos mediciones que no coinciden.** DEC-013 midió +0,037 de Gini externo para un `HistGradientBoostingClassifier` sin ajustar, pero en validación cruzada ese mismo modelo da AUC 0,7065 contra 0,7098 de las splines. No se sabe a qué se debe; una hipótesis sin verificar son los 41.895 `id_cliente` repetidos entre entrenamiento y validación. Falta compararlos sobre la validación externa quitando esos clientes.
 - **Colinealidad sin resolver.** `rating`/`tipo_interes` (0,95) y `principal`/`imp_cuota` (0,97) siguen juntas en el modelo; falta la fase de selección de variables.
 - **Clientes repetidos entre entrenamiento y validación.** Ningún préstamo se repite, pero 41.895 `id_cliente` de validación aparecen también en entrenamiento; si un cliente tiene varios préstamos, la validación puede ser algo optimista.
 - **Clasificación de empleo por palabras clave.** El 18,5% de los clientes de entrenamiento queda en `otros`. El dashboard ya no fija el sector: lo elige quien usa el selector, y el mapeo de un título a un sector queda del lado del cliente.
